@@ -5,10 +5,20 @@
 #include "rgb332.h"
 #include "rgb565.h"
 
-#if !defined(RGB332) && !defined(RGB565)
-    #define colour_t rgb332_t
-    #warning "No colour format has been specified, defaulting to RGB332."
+#define COLOUR_FORMAT_COUNT \
+    (defined(RGB332) + defined(RGB565))
+
+#if COLOUR_FORMAT_COUNT == 0
+    #define RGB332
+    #warning "No colour format specified, defaulting to RGB332."
+#elif COLOUR_FORMAT_COUNT > 1
+    #undef RGB332
+    #undef RGB565
+    #define RGB332
+    #warning "Multiple colour formats specified, defaulting to RGB332."
 #endif
+
+#undef COLOUR_FORMAT_COUNT
 
 #if defined(RGB332)
 

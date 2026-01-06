@@ -2,7 +2,7 @@
 #ifndef PICO_ENGINE_COMMON_COMPONENTS_H
 #define PICO_ENGINE_COMMON_COMPONENTS_H
 
-#include "qtype.h"
+#include "fixed_point.h"
 
 typedef struct
 {

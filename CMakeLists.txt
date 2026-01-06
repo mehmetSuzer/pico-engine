@@ -10,20 +10,22 @@ set(CMAKE_BUILD_TYPE Release)
 # Either run the following command while configuring the build folder
 # cmake -DPICO_BOARD=pico2 ..
 # Or uncomment the following line 
-set(PICO_BOARD pico2)
+set(PICO_BOARD pico)
 
 # Modify the following macros based on 
 # 1- the resolution of your screen
 # 2- the fixed-point number type you choose (Q16_16, Q24_8, or Q8_24)
 # 3- the colour format you prefer (RGB332 or RGB565)
 # 4- the depth precision you need (DEPTH_8BIT or DEPTH_16BIT)
+# 5- enable/disable overclocking
 add_compile_definitions(
     SCREEN_WIDTH=240
     SCREEN_HEIGHT=240
 
     Q16_16
-    RGB332
+    RGB565
     DEPTH_8BIT
+    PICO_OVERCLOCK
 )
 
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
@@ -40,6 +42,7 @@ add_subdirectory(libs/qglm)
 
 add_subdirectory(src/colour)
 add_subdirectory(src/common)
+add_subdirectory(src/device)
 add_subdirectory(src/pgl)
 
 add_executable(${PROJECT_NAME} 
@@ -52,6 +55,7 @@ target_link_libraries(${PROJECT_NAME}
     qglm
     colour
     common
+    device
     pgl
 )
 
