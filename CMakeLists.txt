@@ -25,7 +25,7 @@ add_compile_definitions(
     Q16_16
     RGB565
     DEPTH_8BIT
-    PICO_OVERCLOCK
+    # PICO_OVERCLOCK
 )
 
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
@@ -44,6 +44,7 @@ add_subdirectory(src/colour)
 add_subdirectory(src/common)
 add_subdirectory(src/device)
 add_subdirectory(src/pgl)
+add_subdirectory(src/mesh)
 
 add_executable(${PROJECT_NAME} 
     src/main.c
@@ -57,6 +58,7 @@ target_link_libraries(${PROJECT_NAME}
     common
     device
     pgl
+    mesh
 )
 
 target_compile_options(${PROJECT_NAME} 

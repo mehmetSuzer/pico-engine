@@ -31,9 +31,9 @@
 
 static inline depth_t depth_map(Q_TYPE depth, Q_TYPE near, Q_TYPE far)
 {
-    const depth_t bit_range = DEPTH_FURTHEST - DEPTH_NEAREST;
+    const int32_t bit_range = (int32_t)(DEPTH_FURTHEST - DEPTH_NEAREST);
     const Q_TYPE ratio = q_div(q_sub(depth, near), q_sub(far, near));
-    const depth_t depth_bit = q_add(q_mul_int(ratio, bit_range), Q_FROM_INT(DEPTH_NEAREST));
+    const depth_t depth_bit = Q_TO_INT(q_add(q_mul_int(ratio, bit_range), Q_FROM_INT(DEPTH_NEAREST)));
     return depth_bit;
 }
 

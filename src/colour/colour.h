@@ -22,7 +22,7 @@
 
 #if defined(RGB332)
 
-    #define colour_t            rgb332_t
+    typedef rgb332_t colour_t;
 
     #define COLOUR_RED_BITS     RGB332_RED_BITS
     #define COLOUR_GREEN_BITS   RGB332_GREEN_BITS
@@ -57,8 +57,8 @@
 
 #elif defined(RGB565)
 
-    #define colour_t            rgb565_t
-
+    typedef rgb565_t colour_t;
+    
     #define COLOUR_RED_BITS     RGB565_RED_BITS
     #define COLOUR_GREEN_BITS   RGB565_GREEN_BITS
     #define COLOUR_BLUE_BITS    RGB565_BLUE_BITS

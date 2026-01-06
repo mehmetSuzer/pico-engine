@@ -18,16 +18,23 @@ typedef struct
 
 typedef struct
 {
+    int32_t x, y;
     Q_VEC2 tex_coord;
     Q_TYPE inv_depth;
-    int32_t x, y;
-} pgl_fragment_t;
+} pgl_rast_vertex_t;
 
 typedef struct
 {
     colour_t colours[SCREEN_HEIGHT][SCREEN_WIDTH];
     depth_t   depths[SCREEN_HEIGHT][SCREEN_WIDTH];
 } pgl_framebuffer_t;
+
+typedef struct
+{
+    const colour_t* texels;
+    uint16_t row;
+    uint16_t col;
+} pgl_texture_t;
 
 typedef struct
 {
@@ -62,9 +69,9 @@ static pgl_context_t context = {
     .far  = Q_MAX,
 
     .texture = {
-        .data = NULL,
-        .row  = 0u,
-        .col  = 0u,
+        .texels = NULL,
+        .row    = 0u,
+        .col    = 0u,
     },
 
     .clear_colour = COLOUR_BLACK,
@@ -105,7 +112,6 @@ static inline uint16_t pgl_clip_queue_length(const pgl_clip_queue_t* queue)
         : (queue->back + PGL_CLIP_QUEUE_CAPACITY) - queue->front;
 }
 
-// WARNING: Does nothing if the queue is full
 static inline void pgl_clip_queue_push(pgl_clip_queue_t* queue, const pgl_clip_triangle_t* triangle)
 {
     if (pgl_clip_queue_is_full(queue)) return;
@@ -113,7 +119,6 @@ static inline void pgl_clip_queue_push(pgl_clip_queue_t* queue, const pgl_clip_t
     queue->back = (queue->back + 1u) % PGL_CLIP_QUEUE_CAPACITY;
 }
 
-// WARNING: Returns NULL if the queue is empty
 static inline pgl_clip_triangle_t* pgl_clip_queue_pop(pgl_clip_queue_t* queue)
 {
     if (pgl_clip_queue_is_empty(queue)) return NULL;
@@ -266,7 +271,7 @@ static inline bool pgl_face_is_culled(Q_VEC2 v0_xy_ndc, Q_VEC2 v1_xy_ndc, Q_VEC2
 
 static inline colour_t pgl_sample_texture(Q_VEC2 tex_coord)
 {
-    if (context.texture.data == NULL) return COLOUR_BLACK;
+    if (context.texture.texels == NULL) return COLOUR_BLACK;
     // TODO: implement texture sampling
     const colour_t place_holder = COLOUR_RED;
     return place_holder;
@@ -296,25 +301,25 @@ static colour_t pgl_fragment_shader(Q_VEC2 tex_coord)
 
 // ------------------------------------- RASTERISER ------------------------------------- //
 
-static void pgl_draw_filled_triangle(pgl_fragment_t f0, pgl_fragment_t f1, pgl_fragment_t f2)
+static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1, pgl_rast_vertex_t v2)
 {
-    // Sort fragments with respect to their y coordinates
-    if (f0.y > f1.y) SWAP(&f0, &f1);
-    if (f1.y > f2.y) SWAP(&f1, &f2);
-    if (f0.y > f1.y) SWAP(&f0, &f1);
+    // Sort vertices with respect to their y coordinates
+    if (v0.y > v1.y) SWAP(&v0, &v1);
+    if (v1.y > v2.y) SWAP(&v1, &v2);
+    if (v0.y > v1.y) SWAP(&v0, &v1);
 
-    int32_t dx1 = f1.x - f0.x;
-    int32_t dy1 = f1.y - f0.y;
-    int32_t dx2 = f2.x - f0.x;
-    int32_t dy2 = f2.y - f0.y;
+    int32_t dx1 = v1.x - v0.x;
+    int32_t dy1 = v1.y - v0.y;
+    int32_t dx2 = v2.x - v0.x;
+    int32_t dy2 = v2.y - v0.y;
 
-    Q_TYPE du1 = q_sub(f1.tex_coord.u, f0.tex_coord.u);
-    Q_TYPE dv1 = q_sub(f1.tex_coord.v, f0.tex_coord.v);
-    Q_TYPE du2 = q_sub(f2.tex_coord.u, f0.tex_coord.u);
-    Q_TYPE dv2 = q_sub(f2.tex_coord.v, f0.tex_coord.v);
+    Q_TYPE du1 = q_sub(v1.tex_coord.u, v0.tex_coord.u);
+    Q_TYPE dv1 = q_sub(v1.tex_coord.v, v0.tex_coord.v);
+    Q_TYPE du2 = q_sub(v2.tex_coord.u, v0.tex_coord.u);
+    Q_TYPE dv2 = q_sub(v2.tex_coord.v, v0.tex_coord.v);
     
-    Q_TYPE dw1 = q_sub(f1.inv_depth, f0.inv_depth);
-    Q_TYPE dw2 = q_sub(f2.inv_depth, f0.inv_depth);
+    Q_TYPE dw1 = q_sub(v1.inv_depth, v0.inv_depth);
+    Q_TYPE dw2 = q_sub(v2.inv_depth, v0.inv_depth);
 
     Q_TYPE inv_abs_dy1 = q_div(Q_ONE, Q_FROM_INT(ABS(dy1)));
     Q_TYPE inv_abs_dy2 = q_div(Q_ONE, Q_FROM_INT(ABS(dy2)));
@@ -331,19 +336,19 @@ static void pgl_draw_filled_triangle(pgl_fragment_t f0, pgl_fragment_t f1, pgl_f
 
 	if (dy1 != 0) 
     {
-		for (int32_t y = f0.y; y <= f1.y; ++y) 
+		for (int32_t y = v0.y; y <= v1.y; ++y) 
         {
-            const Q_TYPE y0_diff = Q_FROM_INT(y - f0.y);
+            const Q_TYPE y0_diff = Q_FROM_INT(y - v0.y);
 
-            int32_t start_x = f0.x + Q_TO_INT(q_mul(y0_diff, sx1));
-            Q_TYPE  start_u = q_add(f0.tex_coord.u, q_mul(y0_diff, su1));
-            Q_TYPE  start_v = q_add(f0.tex_coord.v, q_mul(y0_diff, sv1));
-            Q_TYPE  start_w = q_add(f0.inv_depth, q_mul(y0_diff, sw1));
+            int32_t start_x = v0.x + Q_TO_INT(q_mul(y0_diff, sx1));
+            Q_TYPE  start_u = q_add(v0.tex_coord.u, q_mul(y0_diff, su1));
+            Q_TYPE  start_v = q_add(v0.tex_coord.v, q_mul(y0_diff, sv1));
+            Q_TYPE  start_w = q_add(v0.inv_depth, q_mul(y0_diff, sw1));
 
-            int32_t end_x = f0.x + Q_TO_INT(q_mul(y0_diff, sx2));
-            Q_TYPE  end_u = q_add(f0.tex_coord.u, q_mul(y0_diff, su2));
-            Q_TYPE  end_v = q_add(f0.tex_coord.v, q_mul(y0_diff, sv2));
-            Q_TYPE  end_w = q_add(f0.inv_depth, q_mul(y0_diff, sw2));
+            int32_t end_x = v0.x + Q_TO_INT(q_mul(y0_diff, sx2));
+            Q_TYPE  end_u = q_add(v0.tex_coord.u, q_mul(y0_diff, su2));
+            Q_TYPE  end_v = q_add(v0.tex_coord.v, q_mul(y0_diff, sv2));
+            Q_TYPE  end_w = q_add(v0.inv_depth, q_mul(y0_diff, sw2));
 
             if (start_x > end_x) 
             {
@@ -356,7 +361,7 @@ static void pgl_draw_filled_triangle(pgl_fragment_t f0, pgl_fragment_t f1, pgl_f
             Q_TYPE a = Q_ZERO;
 			const Q_TYPE sa = q_div(Q_ONE, Q_FROM_INT(end_x - start_x));
 
-			for (int32_t x = start_x; x < end_x; ++x) 
+			for (int32_t x = start_x; x <= end_x; ++x) 
             {
                 const Q_TYPE inv_w = q_div(Q_ONE, q_interp(end_w, start_w, a));
                 const depth_t depth = depth_map(inv_w, context.near, context.far);
@@ -376,13 +381,13 @@ static void pgl_draw_filled_triangle(pgl_fragment_t f0, pgl_fragment_t f1, pgl_f
 		}
 	}
 
-    dx1 = f2.x - f1.x;
-    dy1 = f2.y - f1.y;
+    dx1 = v2.x - v1.x;
+    dy1 = v2.y - v1.y;
 
-    du1 = q_sub(f2.tex_coord.u, f1.tex_coord.u);
-    dv1 = q_sub(f2.tex_coord.v, f1.tex_coord.v);
+    du1 = q_sub(v2.tex_coord.u, v1.tex_coord.u);
+    dv1 = q_sub(v2.tex_coord.v, v1.tex_coord.v);
     
-    dw1 = q_sub(f2.inv_depth, f1.inv_depth);
+    dw1 = q_sub(v2.inv_depth, v1.inv_depth);
 
     inv_abs_dy1 = q_div(Q_ONE, Q_FROM_INT(ABS(dy1)));
     
@@ -393,20 +398,20 @@ static void pgl_draw_filled_triangle(pgl_fragment_t f0, pgl_fragment_t f1, pgl_f
 
 	if (dy1 != 0) 
     {
-		for (int32_t y = f1.y; y <= f2.y; ++y) 
+		for (int32_t y = v1.y; y <= v2.y; ++y) 
         {
-            const Q_TYPE y0_diff = Q_FROM_INT(y - f0.y);
-            const Q_TYPE y1_diff = Q_FROM_INT(y - f1.y);
+            const Q_TYPE y0_diff = Q_FROM_INT(y - v0.y);
+            const Q_TYPE y1_diff = Q_FROM_INT(y - v1.y);
 
-            int32_t start_x = f1.x + Q_TO_INT(q_mul(y1_diff, sx1));
-            Q_TYPE  start_u = q_add(f1.tex_coord.u, q_mul(y1_diff, su1));
-            Q_TYPE  start_v = q_add(f1.tex_coord.v, q_mul(y1_diff, sv1));
-            Q_TYPE  start_w = q_add(f1.inv_depth, q_mul(y1_diff, sw1));
+            int32_t start_x = v1.x + Q_TO_INT(q_mul(y1_diff, sx1));
+            Q_TYPE  start_u = q_add(v1.tex_coord.u, q_mul(y1_diff, su1));
+            Q_TYPE  start_v = q_add(v1.tex_coord.v, q_mul(y1_diff, sv1));
+            Q_TYPE  start_w = q_add(v1.inv_depth, q_mul(y1_diff, sw1));
 
-            int32_t end_x = f0.x + Q_TO_INT(q_mul(y0_diff, sx2));
-            Q_TYPE  end_u = q_add(f0.tex_coord.u, q_mul(y0_diff, su2));
-            Q_TYPE  end_v = q_add(f0.tex_coord.v, q_mul(y0_diff, sv2));
-            Q_TYPE  end_w = q_add(f0.inv_depth, q_mul(y0_diff, sw2));
+            int32_t end_x = v0.x + Q_TO_INT(q_mul(y0_diff, sx2));
+            Q_TYPE  end_u = q_add(v0.tex_coord.u, q_mul(y0_diff, su2));
+            Q_TYPE  end_v = q_add(v0.tex_coord.v, q_mul(y0_diff, sv2));
+            Q_TYPE  end_w = q_add(v0.inv_depth, q_mul(y0_diff, sw2));
 
             if (start_x > end_x) 
             {
@@ -419,7 +424,7 @@ static void pgl_draw_filled_triangle(pgl_fragment_t f0, pgl_fragment_t f1, pgl_f
             Q_TYPE a = Q_ZERO;
 			const Q_TYPE sa = q_div(Q_ONE, Q_FROM_INT(end_x - start_x));
 
-			for (int32_t x = start_x; x < end_x; ++x) 
+			for (int32_t x = start_x; x <= end_x; ++x) 
             {
                 const Q_TYPE inv_w = q_div(Q_ONE, q_interp(end_w, start_w, a));
                 const depth_t depth = depth_map(inv_w, context.near, context.far);
@@ -514,11 +519,11 @@ void pgl_clear(pgl_framebuffer_bit_t bits)
     }
 }
 
-void pgl_bind_texture(const colour_t* data, uint16_t row, uint16_t col)
+void pgl_bind_texture(const colour_t* texels, uint16_t row, uint16_t col)
 {
-    context.texture.data = data;
-    context.texture.row  = row;
-    context.texture.col  = col;
+    context.texture.texels = texels;
+    context.texture.row    = row;
+    context.texture.col    = col;
 }
 
 void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t num_indices)
@@ -549,36 +554,36 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t nu
 
             if (pgl_face_is_culled(v0_xy_ndc, v1_xy_ndc, v2_xy_ndc)) continue;
 
-            const Q_VEC4 s0 = q_mat4_mul_vec4(context.viewport, subtriangle->v0.position);
-            const Q_VEC4 s1 = q_mat4_mul_vec4(context.viewport, subtriangle->v1.position);
-            const Q_VEC4 s2 = q_mat4_mul_vec4(context.viewport, subtriangle->v2.position);
+            const Q_VEC4 s0 = q_mat4_mul_vec4(context.viewport, ndc0);
+            const Q_VEC4 s1 = q_mat4_mul_vec4(context.viewport, ndc1);
+            const Q_VEC4 s2 = q_mat4_mul_vec4(context.viewport, ndc2);
 
             const Q_TYPE inv_depth0 = q_div(Q_ONE, subtriangle->v0.position.w);
             const Q_TYPE inv_depth1 = q_div(Q_ONE, subtriangle->v1.position.w);
             const Q_TYPE inv_depth2 = q_div(Q_ONE, subtriangle->v2.position.w);
 
-            const pgl_fragment_t f0 = {
-                .tex_coord = q_vec2_scale(subtriangle->v0.tex_coord, inv_depth0),
-                .inv_depth = inv_depth0,
+            const pgl_rast_vertex_t rv0 = {
                 .x = Q_TO_INT(s0.x),
                 .y = Q_TO_INT(s0.y),
+                .tex_coord = q_vec2_scale(subtriangle->v0.tex_coord, inv_depth0),
+                .inv_depth = inv_depth0,
             };
 
-            const pgl_fragment_t f1 = {
-                .tex_coord = q_vec2_scale(subtriangle->v1.tex_coord, inv_depth1),
-                .inv_depth = inv_depth1,
+            const pgl_rast_vertex_t rv1 = {
                 .x = Q_TO_INT(s1.x),
                 .y = Q_TO_INT(s1.y),
+                .tex_coord = q_vec2_scale(subtriangle->v1.tex_coord, inv_depth1),
+                .inv_depth = inv_depth1,
             };
 
-            const pgl_fragment_t f2 = {
-                .tex_coord = q_vec2_scale(subtriangle->v2.tex_coord, inv_depth2),
-                .inv_depth = inv_depth2,
+            const pgl_rast_vertex_t rv2 = {
                 .x = Q_TO_INT(s2.x),
                 .y = Q_TO_INT(s2.y),
+                .tex_coord = q_vec2_scale(subtriangle->v2.tex_coord, inv_depth2),
+                .inv_depth = inv_depth2,
             };
 
-            pgl_draw_filled_triangle(f0, f1, f2);
+            pgl_draw_filled_triangle(rv0, rv1, rv2);
         }
     }
 }

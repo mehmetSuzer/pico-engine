@@ -58,7 +58,8 @@ static void lcd_reset()
 static void lcd_set_spi() 
 {
     spi_init(SPI_PORT, SPI_BAUDRATE_HZ);
-    // (SPI_CPOL_1, SPI_CPHA_1), where 0.5 clock cycles is wasted, is faster than (SPI_CPOL_0, SPI_CPHA_0), where 1.5 clock cycles is wasted.
+    // (SPI_CPOL_1, SPI_CPHA_1), where 0.5 clock cycles is wasted, 
+    // is faster than (SPI_CPOL_0, SPI_CPHA_0), where 1.5 clock cycles is wasted.
     spi_set_format(SPI_PORT, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
     gpio_set_function(LCD_CLK_PIN, GPIO_FUNC_SPI);
     gpio_set_function(LCD_MOSI_PIN, GPIO_FUNC_SPI);

@@ -22,13 +22,6 @@ typedef struct
     Q_VEC2 tex_coord;
 } pgl_vertex_t;
 
-typedef struct
-{
-    const colour_t* data;
-    uint16_t row;
-    uint16_t col;
-} pgl_texture_t;
-
 typedef enum
 {
     PGL_COLOUR_BUFFER_BIT = 0b01,
@@ -44,7 +37,7 @@ void pgl_clear_colour(colour_t colour);
 void pgl_clear_depth(depth_t depth);
 void pgl_clear(pgl_framebuffer_bit_t bits);
 
-void pgl_bind_texture(const colour_t* data, uint16_t row, uint16_t col);
+void pgl_bind_texture(const colour_t* texels, uint16_t row, uint16_t col);
 void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t num_indices);
 
 #endif // PICO_ENGINE_PGL_PGL_H
