@@ -1,0 +1,3 @@
+[submodule "libs/qglm"]
+	path = libs/qglm
+	url = git@github.com:mehmetSuzer/qglm.git
