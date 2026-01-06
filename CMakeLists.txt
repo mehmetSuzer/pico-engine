@@ -38,6 +38,10 @@ pico_sdk_init()
 
 add_subdirectory(libs/qglm)
 
+add_subdirectory(src/colour)
+add_subdirectory(src/common)
+add_subdirectory(src/pgl)
+
 add_executable(${PROJECT_NAME} 
     src/main.c
 )
@@ -46,6 +50,9 @@ target_link_libraries(${PROJECT_NAME}
     PRIVATE
     pico_stdlib
     qglm
+    colour
+    common
+    pgl
 )
 
 target_compile_options(${PROJECT_NAME} 
