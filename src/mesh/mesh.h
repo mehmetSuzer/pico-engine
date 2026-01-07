@@ -8,8 +8,8 @@ typedef struct
 {
     const pgl_vertex_t* vertices;
     const uint16_t* indices;
-    const uint16_t vertex_count;
-    const uint16_t index_count;
+    uint16_t vertex_count;
+    uint16_t index_count;
 } mesh_t;
 
 extern const mesh_t cube_mesh;

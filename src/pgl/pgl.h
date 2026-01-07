@@ -3,13 +3,14 @@
 #define PICO_ENGINE_PGL_PGL_H
 
 #include <stddef.h>
+#include <stdio.h>
 
 #include "common/macros.h"
 #include "colour/colour.h"
 #include "depth.h"
 
 #ifndef SCREEN_HEIGHT
-    #error "SCREEN_HEIGH is not defined!"
+    #error "SCREEN_HEIGHT is not defined!"
 #endif
 
 #ifndef SCREEN_WIDTH

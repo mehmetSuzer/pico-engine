@@ -4,8 +4,19 @@
 
 #include "common/fixed_point.h"
 
-#define DEPTH_FORMAT_COUNT \
-    (defined(DEPTH_8BIT) + defined(DEPTH_16BIT))
+#ifdef DEPTH_8BIT
+    #define HAS_DEPTH_8BIT 1
+#else
+    #define HAS_DEPTH_8BIT 0
+#endif
+
+#ifdef DEPTH_16BIT
+    #define HAS_DEPTH_16BIT 1
+#else
+    #define HAS_DEPTH_16BIT 0
+#endif
+
+#define DEPTH_FORMAT_COUNT (HAS_DEPTH_8BIT + HAS_DEPTH_16BIT)
 
 #if DEPTH_FORMAT_COUNT == 0
     #define DEPTH_8BIT
@@ -18,6 +29,10 @@
 #endif
 
 #undef DEPTH_FORMAT_COUNT
+#undef HAS_DEPTH_8BIT
+#undef HAS_DEPTH_16BIT
+
+// ----------------------------------------------------------------------------------- //
 
 #if defined(DEPTH_8BIT)
     typedef uint8_t depth_t;

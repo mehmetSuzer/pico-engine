@@ -103,10 +103,10 @@ static void lcd_init()
     lcd_write_8bit_data(0X70);
     
     lcd_command(0x3A);
-#if defined(RGB565)
-    lcd_write_8bit_data(0x05);  // RGB565 
-#elif defined(RGB332)
-    lcd_write_8bit_data(0x02);  // RGB332
+#if defined(RGB332)
+    lcd_write_8bit_data(0x02);
+#elif defined(RGB565)
+    lcd_write_8bit_data(0x05);
 #endif
 
     lcd_command(0xB2);
@@ -243,6 +243,7 @@ static void device_configure_clock()
 
 void device_init() 
 {
+    stdio_init_all();
     device_configure_clock();
     buttons_init();
     lcd_init();
@@ -255,18 +256,18 @@ void device_display(const colour_t* screen)
     gpio_put(LCD_DC_PIN, DEVICE_HIGH); // Data Mode
     gpio_put(LCD_CS_PIN, DEVICE_LOW);
     
-#if defined(RGB565)
+#if defined(RGB332)
+    spi_write_blocking(SPI_PORT, screen, SCREEN_HEIGHT * SCREEN_WIDTH);
+#elif defined(RGB565)
     // switch to 16-bit mode for pixel data transfer
     spi_set_format(SPI_PORT, 16, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
     spi_write16_blocking(SPI_PORT, screen, SCREEN_HEIGHT * SCREEN_WIDTH);
-#elif defined(RGB332)
-    spi_write_blocking(SPI_PORT, (uint8_t*)screen, SCREEN_HEIGHT * SCREEN_WIDTH);
 #endif
 
     gpio_put(LCD_CS_PIN, DEVICE_HIGH);
 
     // switch to 8-bit mode for command transfer
-    spi_set_format(SPI_PORT, 16, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+    spi_set_format(SPI_PORT, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
     lcd_command(0x29);
 }
 

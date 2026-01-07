@@ -3,10 +3,10 @@
 
 const pgl_vertex_t cube_vertices[] = {
     // Front Face
-    {{Q_M_HALF, Q_M_HALF, Q_HALF}, {Q_ZERO, Q_ZERO}}, 
-    {{  Q_HALF, Q_M_HALF, Q_HALF}, { Q_ONE, Q_ZERO}},         
-    {{  Q_HALF,   Q_HALF, Q_HALF}, { Q_ONE,  Q_ONE}},       
-    {{Q_M_HALF,   Q_HALF, Q_HALF}, {Q_ZERO,  Q_ONE}},
+    {{Q_M_HALF, Q_M_HALF,   Q_HALF}, {Q_ZERO, Q_ZERO}}, 
+    {{  Q_HALF, Q_M_HALF,   Q_HALF}, { Q_ONE, Q_ZERO}},         
+    {{  Q_HALF,   Q_HALF,   Q_HALF}, { Q_ONE,  Q_ONE}},       
+    {{Q_M_HALF,   Q_HALF,   Q_HALF}, {Q_ZERO,  Q_ONE}},
 
     // Back Face
     {{  Q_HALF, Q_M_HALF, Q_M_HALF}, {Q_ZERO, Q_ZERO}}, 
@@ -15,10 +15,10 @@ const pgl_vertex_t cube_vertices[] = {
     {{  Q_HALF,   Q_HALF, Q_M_HALF}, {Q_ZERO,  Q_ONE}},
 
     // Right Face
-    {{Q_HALF, Q_M_HALF,   Q_HALF}, {Q_ZERO, Q_ZERO}},   
-    {{Q_HALF, Q_M_HALF, Q_M_HALF}, { Q_ONE, Q_ZERO}},        
-    {{Q_HALF,   Q_HALF, Q_M_HALF}, { Q_ONE,  Q_ONE}},     
-    {{Q_HALF,   Q_HALF,   Q_HALF}, {Q_ZERO,  Q_ONE}},
+    {{  Q_HALF, Q_M_HALF,   Q_HALF}, {Q_ZERO, Q_ZERO}},   
+    {{  Q_HALF, Q_M_HALF, Q_M_HALF}, { Q_ONE, Q_ZERO}},        
+    {{  Q_HALF,   Q_HALF, Q_M_HALF}, { Q_ONE,  Q_ONE}},     
+    {{  Q_HALF,   Q_HALF,   Q_HALF}, {Q_ZERO,  Q_ONE}},
 
     // Left Face
     {{Q_M_HALF, Q_M_HALF, Q_M_HALF}, {Q_ZERO, Q_ZERO}},
@@ -27,10 +27,10 @@ const pgl_vertex_t cube_vertices[] = {
     {{Q_M_HALF,   Q_HALF, Q_M_HALF}, {Q_ZERO,  Q_ONE}},
 
     // Up Face
-    {{Q_M_HALF, Q_HALF,   Q_HALF}, {Q_ZERO, Q_ZERO}},   
-    {{  Q_HALF, Q_HALF,   Q_HALF}, { Q_ONE, Q_ZERO}},       
-    {{  Q_HALF, Q_HALF, Q_M_HALF}, { Q_ONE,  Q_ONE}},     
-    {{Q_M_HALF, Q_HALF, Q_M_HALF}, {Q_ZERO,  Q_ONE}},
+    {{Q_M_HALF,   Q_HALF,   Q_HALF}, {Q_ZERO, Q_ZERO}},   
+    {{  Q_HALF,   Q_HALF,   Q_HALF}, { Q_ONE, Q_ZERO}},       
+    {{  Q_HALF,   Q_HALF, Q_M_HALF}, { Q_ONE,  Q_ONE}},     
+    {{Q_M_HALF,   Q_HALF, Q_M_HALF}, {Q_ZERO,  Q_ONE}},
 
     // Down Face
     {{Q_M_HALF, Q_M_HALF, Q_M_HALF}, {Q_ZERO, Q_ZERO}},

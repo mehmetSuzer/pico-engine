@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.13...3.27)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_BUILD_TYPE "Release")
 
 # Selecting the target board (pico, pico_w, pico2, pico2_w)
 # Either run the following command while configuring the build folder

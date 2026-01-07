@@ -78,7 +78,7 @@ static pgl_context_t context = {
     .clear_depth  = DEPTH_FURTHEST,
 };
 
-// --------------------------------- TRIANGLE QUEUE --------------------------------- // 
+// --------------------------------- CLIP QUEUE --------------------------------- // 
 
 #define PGL_CLIP_QUEUE_CAPACITY 16u
 
@@ -192,15 +192,15 @@ static int16_t pgl_clip(
                 };
 
                 // Preserve the winding order
-                if (v0_inside)
+                if (!v0_inside)
                 {
                     subtriangles[++last_index] = (pgl_clip_triangle_t){vertex10, tri->v1, tri->v2};
                     subtriangles[++last_index] = (pgl_clip_triangle_t){vertex10, tri->v2, vertex20};
                 }
                 else
                 {
-                    subtriangles[++last_index] = (pgl_clip_triangle_t){vertex10, vertex20, tri->v2};
                     subtriangles[++last_index] = (pgl_clip_triangle_t){vertex10, tri->v2, tri->v1};
+                    subtriangles[++last_index] = (pgl_clip_triangle_t){vertex10, vertex20, tri->v2};
                 }
             }
             else if (num_inside == 1)
@@ -271,10 +271,23 @@ static inline bool pgl_face_is_culled(Q_VEC2 v0_xy_ndc, Q_VEC2 v1_xy_ndc, Q_VEC2
 
 static inline colour_t pgl_sample_texture(Q_VEC2 tex_coord)
 {
-    if (context.texture.texels == NULL) return COLOUR_BLACK;
-    // TODO: implement texture sampling
-    const colour_t place_holder = COLOUR_RED;
-    return place_holder;
+    if (context.texture.texels == NULL) return COLOUR_RED;
+
+    if (q_lt(tex_coord.u, Q_ZERO) || q_gt(tex_coord.u, Q_ONE))
+        tex_coord.u = q_sub(tex_coord.u, q_floor(tex_coord.u));
+    if (q_lt(tex_coord.v, Q_ZERO) || q_gt(tex_coord.v, Q_ONE))
+        tex_coord.v = q_sub(tex_coord.v, q_floor(tex_coord.v));
+
+    const Q_TYPE col_sampling_period = q_add(q_div(Q_ONE, Q_FROM_INT(context.texture.col)), Q_EPSILON);
+    const Q_TYPE row_sampling_period = q_add(q_div(Q_ONE, Q_FROM_INT(context.texture.row)), Q_EPSILON);
+
+    const int32_t u = Q_TO_INT(q_div(tex_coord.u, col_sampling_period));
+    const int32_t v = Q_TO_INT(q_div(tex_coord.v, row_sampling_period));
+
+    const int32_t index = u + (context.texture.row - v - 1) * context.texture.col;
+    const colour_t colour = context.texture.texels[index];
+
+    return colour;
 }
 
 // ------------------------------------- SHADERS ------------------------------------- //
@@ -304,6 +317,7 @@ static colour_t pgl_fragment_shader(Q_VEC2 tex_coord)
 static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1, pgl_rast_vertex_t v2)
 {
     // Sort vertices with respect to their y coordinates
+    // v0.y <= v1.y <= v2.y
     if (v0.y > v1.y) SWAP(&v0, &v1);
     if (v1.y > v2.y) SWAP(&v1, &v2);
     if (v0.y > v1.y) SWAP(&v0, &v1);
@@ -361,7 +375,7 @@ static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1,
             Q_TYPE a = Q_ZERO;
 			const Q_TYPE sa = q_div(Q_ONE, Q_FROM_INT(end_x - start_x));
 
-			for (int32_t x = start_x; x <= end_x; ++x) 
+			for (int32_t x = start_x; x < end_x; ++x) 
             {
                 const Q_TYPE inv_w = q_div(Q_ONE, q_interp(end_w, start_w, a));
                 const depth_t depth = depth_map(inv_w, context.near, context.far);
@@ -424,7 +438,7 @@ static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1,
             Q_TYPE a = Q_ZERO;
 			const Q_TYPE sa = q_div(Q_ONE, Q_FROM_INT(end_x - start_x));
 
-			for (int32_t x = start_x; x <= end_x; ++x) 
+			for (int32_t x = start_x; x < end_x; ++x) 
             {
                 const Q_TYPE inv_w = q_div(Q_ONE, q_interp(end_w, start_w, a));
                 const depth_t depth = depth_map(inv_w, context.near, context.far);
@@ -532,11 +546,11 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
 
     for (uint16_t i = 0; i < index_count; i+=3)
     {
-        pgl_clip_vertex_t v0 = pgl_vertex_shader(vertices[indices[i + 0]]);
-        pgl_clip_vertex_t v1 = pgl_vertex_shader(vertices[indices[i + 1]]);
-        pgl_clip_vertex_t v2 = pgl_vertex_shader(vertices[indices[i + 2]]);
+        pgl_clip_vertex_t cv0 = pgl_vertex_shader(vertices[indices[i + 0]]);
+        pgl_clip_vertex_t cv1 = pgl_vertex_shader(vertices[indices[i + 1]]);
+        pgl_clip_vertex_t cv2 = pgl_vertex_shader(vertices[indices[i + 2]]);
 
-        pgl_clip_triangle_t clip_triangle = {v0, v1, v2};
+        pgl_clip_triangle_t clip_triangle = {cv0, cv1, cv2};
         int16_t last_index = pgl_clip(&clip_triangle, subtriangles);
 
         while (last_index >= 0)
@@ -554,31 +568,31 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
 
             if (pgl_face_is_culled(v0_xy_ndc, v1_xy_ndc, v2_xy_ndc)) continue;
 
-            const Q_VEC4 s0 = q_mat4_mul_vec4(context.viewport, ndc0);
-            const Q_VEC4 s1 = q_mat4_mul_vec4(context.viewport, ndc1);
-            const Q_VEC4 s2 = q_mat4_mul_vec4(context.viewport, ndc2);
+            const Q_VEC4 sc0 = q_mat4_mul_vec4(context.viewport, ndc0);
+            const Q_VEC4 sc1 = q_mat4_mul_vec4(context.viewport, ndc1);
+            const Q_VEC4 sc2 = q_mat4_mul_vec4(context.viewport, ndc2);
 
             const Q_TYPE inv_depth0 = q_div(Q_ONE, subtriangle->v0.position.w);
             const Q_TYPE inv_depth1 = q_div(Q_ONE, subtriangle->v1.position.w);
             const Q_TYPE inv_depth2 = q_div(Q_ONE, subtriangle->v2.position.w);
 
             const pgl_rast_vertex_t rv0 = {
-                .x = Q_TO_INT(s0.x),
-                .y = Q_TO_INT(s0.y),
+                .x = Q_TO_INT(sc0.x),
+                .y = Q_TO_INT(sc0.y),
                 .tex_coord = q_vec2_scale(subtriangle->v0.tex_coord, inv_depth0),
                 .inv_depth = inv_depth0,
             };
 
             const pgl_rast_vertex_t rv1 = {
-                .x = Q_TO_INT(s1.x),
-                .y = Q_TO_INT(s1.y),
+                .x = Q_TO_INT(sc1.x),
+                .y = Q_TO_INT(sc1.y),
                 .tex_coord = q_vec2_scale(subtriangle->v1.tex_coord, inv_depth1),
                 .inv_depth = inv_depth1,
             };
 
             const pgl_rast_vertex_t rv2 = {
-                .x = Q_TO_INT(s2.x),
-                .y = Q_TO_INT(s2.y),
+                .x = Q_TO_INT(sc2.x),
+                .y = Q_TO_INT(sc2.y),
                 .tex_coord = q_vec2_scale(subtriangle->v2.tex_coord, inv_depth2),
                 .inv_depth = inv_depth2,
             };

@@ -5,8 +5,19 @@
 #include "rgb332.h"
 #include "rgb565.h"
 
-#define COLOUR_FORMAT_COUNT \
-    (defined(RGB332) + defined(RGB565))
+#ifdef RGB332
+    #define HAS_RGB332 1
+#else
+    #define HAS_RGB332 0
+#endif
+
+#ifdef RGB565
+    #define HAS_RGB565 1
+#else
+    #define HAS_RGB565 0
+#endif
+
+#define COLOUR_FORMAT_COUNT (HAS_RGB332 + HAS_RGB565)
 
 #if COLOUR_FORMAT_COUNT == 0
     #define RGB332
@@ -19,6 +30,10 @@
 #endif
 
 #undef COLOUR_FORMAT_COUNT
+#undef HAS_RGB332
+#undef HAS_RGB565
+
+// ----------------------------------------------------------------------------------- //
 
 #if defined(RGB332)
 
