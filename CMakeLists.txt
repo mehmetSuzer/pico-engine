@@ -25,7 +25,7 @@ add_compile_definitions(
     Q16_16
     RGB565
     DEPTH_8BIT
-    # PICO_OVERCLOCK
+    PICO_OVERCLOCK
 )
 
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)

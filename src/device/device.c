@@ -60,6 +60,7 @@ static void lcd_set_spi()
     spi_init(SPI_PORT, SPI_BAUDRATE_HZ);
     // (SPI_CPOL_1, SPI_CPHA_1), where 0.5 clock cycles is wasted, 
     // is faster than (SPI_CPOL_0, SPI_CPHA_0), where 1.5 clock cycles is wasted.
+    // LCD expects 8-bit commands and data. Therefore, we initalise the SPI in 8-bit mode.
     spi_set_format(SPI_PORT, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
     gpio_set_function(LCD_CLK_PIN, GPIO_FUNC_SPI);
     gpio_set_function(LCD_MOSI_PIN, GPIO_FUNC_SPI);
@@ -70,7 +71,7 @@ static void lcd_set_pwm()
     gpio_set_function(LCD_BL_PIN, GPIO_FUNC_PWM);
     const uint slice_num = pwm_gpio_to_slice_num(LCD_BL_PIN);
     pwm_set_wrap(slice_num, 100);
-    pwm_set_chan_level(slice_num, PWM_CHAN_B, 60);
+    pwm_set_chan_level(slice_num, PWM_CHAN_B, 40); // level / wrap = 40 / 100 = 40 % brightness
     pwm_set_clkdiv(slice_num, 50.0f);
     pwm_set_enabled(slice_num, true);
 }
@@ -102,7 +103,11 @@ static void lcd_init()
     lcd_write_8bit_data(0X70);
     
     lcd_command(0x3A);
-    lcd_write_8bit_data(0x05);
+#if defined(RGB565)
+    lcd_write_8bit_data(0x05);  // RGB565 
+#elif defined(RGB332)
+    lcd_write_8bit_data(0x02);  // RGB332
+#endif
 
     lcd_command(0xB2);
     lcd_write_8bit_data(0x0C);
@@ -170,6 +175,7 @@ static void lcd_init()
 
     lcd_command(0x21);          // Display Inversion On
     lcd_command(0x11);          // Sleep Out
+    sleep_ms(120);
     lcd_command(0x29);          // Display On
 }
 
@@ -237,28 +243,30 @@ static void device_configure_clock()
 
 void device_init() 
 {
-    stdio_init_all();
     device_configure_clock();
     buttons_init();
     lcd_init();
 }
 
-void device_display(colour_t* screen) 
+void device_display(const colour_t* screen) 
 {
-#if defined(RGB565)
-    for (uint32_t i = 0; i < SCREEN_HEIGHT * SCREEN_WIDTH; ++i) 
-    {
-        const colour_t colour = screen[i];
-        screen[i] = (colour << 8) | ((colour & 0xFF00u) >> 8);
-    }
-#endif
-
     lcd_set_window(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT);
 
-    gpio_put(LCD_DC_PIN, DEVICE_HIGH);
+    gpio_put(LCD_DC_PIN, DEVICE_HIGH); // Data Mode
     gpio_put(LCD_CS_PIN, DEVICE_LOW);
-    spi_write_blocking(SPI_PORT, (uint8_t*)screen, sizeof(colour_t) * SCREEN_HEIGHT * SCREEN_WIDTH);
+    
+#if defined(RGB565)
+    // switch to 16-bit mode for pixel data transfer
+    spi_set_format(SPI_PORT, 16, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+    spi_write16_blocking(SPI_PORT, screen, SCREEN_HEIGHT * SCREEN_WIDTH);
+#elif defined(RGB332)
+    spi_write_blocking(SPI_PORT, (uint8_t*)screen, SCREEN_HEIGHT * SCREEN_WIDTH);
+#endif
+
     gpio_put(LCD_CS_PIN, DEVICE_HIGH);
+
+    // switch to 8-bit mode for command transfer
+    spi_set_format(SPI_PORT, 16, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
     lcd_command(0x29);
 }
 

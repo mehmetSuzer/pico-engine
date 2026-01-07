@@ -526,11 +526,11 @@ void pgl_bind_texture(const colour_t* texels, uint16_t row, uint16_t col)
     context.texture.col    = col;
 }
 
-void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t num_indices)
+void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t index_count)
 {
     pgl_clip_triangle_t subtriangles[PGL_CLIP_QUEUE_CAPACITY];
 
-    for (uint16_t i = 0; i < num_indices; i+=3)
+    for (uint16_t i = 0; i < index_count; i+=3)
     {
         pgl_clip_vertex_t v0 = pgl_vertex_shader(vertices[indices[i + 0]]);
         pgl_clip_vertex_t v1 = pgl_vertex_shader(vertices[indices[i + 1]]);
@@ -586,5 +586,10 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t nu
             pgl_draw_filled_triangle(rv0, rv1, rv2);
         }
     }
+}
+
+const colour_t* pgl_colour_buffer()
+{
+    return (colour_t*)context.framebuffer.colours;
 }
 

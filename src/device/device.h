@@ -20,7 +20,7 @@
 #define DEVICE_KEY_CTRL        3u
 
 void device_init();
-void device_display(colour_t* image);
+void device_display(const colour_t* image);
 void device_set_button_irq_callback(gpio_irq_callback_t callback, uint32_t event_mask, bool enabled);
 
 #endif // PICO_ENGINE_DEVICE_DEVICE_H
