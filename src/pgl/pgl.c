@@ -32,8 +32,8 @@ typedef struct
 typedef struct
 {
     const colour_t* texels;
-    uint16_t row;
-    uint16_t col;
+    uint width_bits;
+    uint height_bits;
 } pgl_texture_t;
 
 typedef struct
@@ -69,69 +69,39 @@ static pgl_context_t context = {
     .far  = Q_MAX,
 
     .texture = {
-        .texels = NULL,
-        .row    = 0u,
-        .col    = 0u,
+        .texels      = NULL,
+        .width_bits  = 0u,
+        .height_bits = 0u,
     },
 
     .clear_colour = COLOUR_BLACK,
     .clear_depth  = DEPTH_FURTHEST,
 };
 
-// --------------------------------- CLIP QUEUE --------------------------------- // 
+// ------------------------------------- CLIP BUFFER ------------------------------------- // 
 
-#define PGL_CLIP_QUEUE_CAPACITY 16u
+#define PGL_CLIP_BUFFER_CAPACITY 16u
 
 typedef struct
 {
-    pgl_clip_triangle_t triangles[PGL_CLIP_QUEUE_CAPACITY];
-    uint16_t front; // index of the next slot for pop
-    uint16_t back;  // index of the next slot for push
-} pgl_clip_queue_t;
+    pgl_clip_triangle_t triangles[PGL_CLIP_BUFFER_CAPACITY];
+    int32_t size; // index of the first empty slot
+} pgl_clip_buffer_t;
 
-
-static inline void pgl_clip_queue_init(pgl_clip_queue_t* queue)
+static inline void pgl_clip_buffer_push(pgl_clip_buffer_t* buffer, const pgl_clip_triangle_t triangle)
 {
-    queue->front = 0u;
-    queue->back  = 0u;
+    buffer->triangles[buffer->size++] = triangle;
 }
 
-static inline bool pgl_clip_queue_is_empty(const pgl_clip_queue_t* queue)
+static inline pgl_clip_triangle_t* pgl_clip_buffer_pop(pgl_clip_buffer_t* buffer)
 {
-    return (queue->front == queue->back);
-}
-
-static inline bool pgl_clip_queue_is_full(const pgl_clip_queue_t* queue)
-{
-    return ((queue->back + 1u) % PGL_CLIP_QUEUE_CAPACITY == queue->front);
-}
-
-static inline uint16_t pgl_clip_queue_length(const pgl_clip_queue_t* queue)
-{
-    return (queue->back >= queue->front) ? queue->back - queue->front
-        : (queue->back + PGL_CLIP_QUEUE_CAPACITY) - queue->front;
-}
-
-static inline void pgl_clip_queue_push(pgl_clip_queue_t* queue, const pgl_clip_triangle_t* triangle)
-{
-    if (pgl_clip_queue_is_full(queue)) return;
-    queue->triangles[queue->back] = *triangle;
-    queue->back = (queue->back + 1u) % PGL_CLIP_QUEUE_CAPACITY;
-}
-
-static inline pgl_clip_triangle_t* pgl_clip_queue_pop(pgl_clip_queue_t* queue)
-{
-    if (pgl_clip_queue_is_empty(queue)) return NULL;
-    pgl_clip_triangle_t* triangle = queue->triangles + queue->front;
-    queue->front = (queue->front + 1u) % PGL_CLIP_QUEUE_CAPACITY;
-    return triangle;
+    buffer->size--;
+    return buffer->triangles + buffer->size;
 }
 
 // ------------------------------------- CLIP ------------------------------------- // 
 
-static int16_t pgl_clip(
-    pgl_clip_triangle_t* restrict clip_triangle, 
-    pgl_clip_triangle_t* restrict subtriangles)
+static void pgl_clip(pgl_clip_triangle_t* clip_triangle, pgl_clip_buffer_t* buffer_out)
 {
     static const Q_VEC4 clip_plane_vectors[] = {
         {Q_ZERO, Q_ZERO,  Q_ONE,   Q_ONE}, // Near   : Z + W > 0.0
@@ -142,16 +112,22 @@ static int16_t pgl_clip(
         {Q_ZERO, Q_ZERO,  Q_ONE, Q_M_ONE}, // Far    : Z - W < 0.0
     };
 
-    int16_t last_index = -1;
-    pgl_clip_queue_t queue;
-    pgl_clip_queue_init(&queue);
-    pgl_clip_queue_push(&queue, clip_triangle);
+    pgl_clip_buffer_t buffer;
+
+    buffer.size = 0;
+    buffer_out->size = 0;
+
+    // The order matters. After 6 iterations, all subtriangles will be listed in the buffer_out.
+    pgl_clip_buffer_t* pop_buffer = buffer_out;
+    pgl_clip_buffer_t* push_buffer = &buffer;
+    pgl_clip_buffer_push(pop_buffer, *clip_triangle);
     
     for (uint16_t i = 0u; i < COUNT_OF(clip_plane_vectors); ++i)
     {
-        while (!pgl_clip_queue_is_empty(&queue)) 
+        push_buffer->size = 0;
+        while (pop_buffer->size > 0) 
         {
-            pgl_clip_triangle_t* tri = pgl_clip_queue_pop(&queue);
+            pgl_clip_triangle_t* tri = pgl_clip_buffer_pop(pop_buffer);
             Q_TYPE dot0 = q_vec4_dot(tri->v0.position, clip_plane_vectors[i]);
             Q_TYPE dot1 = q_vec4_dot(tri->v1.position, clip_plane_vectors[i]);
             Q_TYPE dot2 = q_vec4_dot(tri->v2.position, clip_plane_vectors[i]);
@@ -163,7 +139,7 @@ static int16_t pgl_clip(
 
             if (num_inside == 3)
             {
-                subtriangles[++last_index] = *tri;
+                pgl_clip_buffer_push(push_buffer, *tri);
             }
             else if (num_inside == 2) 
             {
@@ -194,13 +170,13 @@ static int16_t pgl_clip(
                 // Preserve the winding order
                 if (!v0_inside)
                 {
-                    subtriangles[++last_index] = (pgl_clip_triangle_t){vertex10, tri->v1, tri->v2};
-                    subtriangles[++last_index] = (pgl_clip_triangle_t){vertex10, tri->v2, vertex20};
+                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){vertex10, tri->v1, tri->v2});
+                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){vertex10, tri->v2, vertex20});
                 }
                 else
                 {
-                    subtriangles[++last_index] = (pgl_clip_triangle_t){vertex10, tri->v2, tri->v1};
-                    subtriangles[++last_index] = (pgl_clip_triangle_t){vertex10, vertex20, tri->v2};
+                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){vertex10, tri->v2, tri->v1});
+                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){vertex10, vertex20, tri->v2});
                 }
             }
             else if (num_inside == 1)
@@ -230,23 +206,14 @@ static int16_t pgl_clip(
                 };
 
                 // Preserve the winding order
-                if (v0_inside)
-                    subtriangles[++last_index] = (pgl_clip_triangle_t){tri->v0, vertex10, vertex20};
+                if (v0_inside) 
+                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){tri->v0, vertex10, vertex20});
                 else
-                    subtriangles[++last_index] = (pgl_clip_triangle_t){tri->v0, vertex20, vertex10}; 
+                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){tri->v0, vertex20, vertex10});
             }
         }
-
-        if (i < COUNT_OF(clip_plane_vectors) - 1)
-        {
-            while (last_index >= 0)
-            {
-                pgl_clip_queue_push(&queue, subtriangles + last_index);
-                last_index--;
-            }
-        }
+        SWAP(&pop_buffer, &push_buffer);
     }
-    return last_index;
 }
 
 // ------------------------------------- TESTS ------------------------------------- //
@@ -269,25 +236,28 @@ static inline bool pgl_face_is_culled(Q_VEC2 v0_xy_ndc, Q_VEC2 v1_xy_ndc, Q_VEC2
 
 // ------------------------------------- TEXTURE ------------------------------------- //
 
-static inline colour_t pgl_sample_texture(Q_VEC2 tex_coord)
+// REQUIREMENT:  u and  v must be non-negative
+// REQUIREMENT: du and dv must be non-negative
+void pgl_multisample_texture(colour_t *output, Q_TYPE u, Q_TYPE v, Q_TYPE du, Q_TYPE dv, uint32_t count) 
 {
-    if (context.texture.texels == NULL) return COLOUR_RED;
+    interp0->accum[0] = q_mul_pow_2(u, context.texture.width_bits); 
+    interp0->base[0] = q_mul_pow_2(du, context.texture.width_bits);
+    interp0->accum[1] = q_mul_pow_2(v, context.texture.height_bits);
+    interp0->base[1] = q_mul_pow_2(dv, context.texture.height_bits);
 
-    if (q_lt(tex_coord.u, Q_ZERO) || q_gt(tex_coord.u, Q_ONE))
-        tex_coord.u = q_sub(tex_coord.u, q_floor(tex_coord.u));
-    if (q_lt(tex_coord.v, Q_ZERO) || q_gt(tex_coord.v, Q_ONE))
-        tex_coord.v = q_sub(tex_coord.v, q_floor(tex_coord.v));
+    for (uint32_t i = 0; i < count; ++i) 
+    {
+        // equivalent to
+        // uint32_t x = (accum0 >> Q_FRAC_BITS) & ((1 << width_bits)  - 1);
+        // uint32_t y = (accum1 >> Q_FRAC_BITS) & ((1 << height_bits) - 1);
+        // const colour_t* *address = texture + ((x + (y << width_bits)) << bpp_shift);
+        // output[i] = *address;
+        // accum0 = du + accum0;
+        // accum1 = dv + accum1;
 
-    const Q_TYPE col_sampling_period = q_add(q_div(Q_ONE, Q_FROM_INT(context.texture.col)), Q_EPSILON);
-    const Q_TYPE row_sampling_period = q_add(q_div(Q_ONE, Q_FROM_INT(context.texture.row)), Q_EPSILON);
-
-    const int32_t u = Q_TO_INT(q_div(tex_coord.u, col_sampling_period));
-    const int32_t v = Q_TO_INT(q_div(tex_coord.v, row_sampling_period));
-
-    const int32_t index = u + (context.texture.row - v - 1) * context.texture.col;
-    const colour_t colour = context.texture.texels[index];
-
-    return colour;
+        // popping the result advances to the next iteration
+        output[i] = *(const colour_t*)interp0->pop[2];
+    }
 }
 
 // ------------------------------------- SHADERS ------------------------------------- //
@@ -307,8 +277,8 @@ static pgl_clip_vertex_t pgl_vertex_shader(pgl_vertex_t vertex)
 
 static colour_t pgl_fragment_shader(Q_VEC2 tex_coord)
 {
-    colour_t colour = pgl_sample_texture(tex_coord);
-    // TODO: implement a shading technique
+    colour_t colour;
+    pgl_multisample_texture(&colour, tex_coord.u, tex_coord.v, Q_ZERO, Q_ZERO, 1);
     return colour;
 }
 
@@ -533,17 +503,36 @@ void pgl_clear(pgl_framebuffer_bit_t bits)
     }
 }
 
-void pgl_bind_texture(const colour_t* texels, uint16_t row, uint16_t col)
+void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits)
 {
     context.texture.texels = texels;
-    context.texture.row    = row;
-    context.texture.col    = col;
+    context.texture.width_bits = width_bits;
+    context.texture.height_bits = height_bits;
+
+#if defined(RGB332)
+    const uint bpp_shift = 0; // log2(1 byte)
+#elif defined(RGB565)
+    const uint bpp_shift = 1; // log2(2 bytes)
+#endif
+
+    interp_config cfg0 = interp_default_config();
+    interp_config_set_add_raw(&cfg0, true);
+    interp_config_set_shift(&cfg0, Q_FRAC_BITS - bpp_shift);
+    interp_config_set_mask(&cfg0, bpp_shift, width_bits + bpp_shift - 1);
+    interp_set_config(interp0, 0, &cfg0);
+
+    interp_config cfg1 = interp_default_config();
+    interp_config_set_add_raw(&cfg1, true);
+    interp_config_set_shift(&cfg1, Q_FRAC_BITS - width_bits - bpp_shift);
+    interp_config_set_mask(&cfg1, width_bits + bpp_shift, width_bits + height_bits + bpp_shift - 1);
+    interp_set_config(interp0, 1, &cfg1);
+
+    interp0->base[2] = (uintptr_t)context.texture.texels;
 }
 
 void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t index_count)
 {
-    pgl_clip_triangle_t subtriangles[PGL_CLIP_QUEUE_CAPACITY];
-
+    pgl_clip_buffer_t buffer;
     for (uint16_t i = 0; i < index_count; i+=3)
     {
         pgl_clip_vertex_t cv0 = pgl_vertex_shader(vertices[indices[i + 0]]);
@@ -551,12 +540,11 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
         pgl_clip_vertex_t cv2 = pgl_vertex_shader(vertices[indices[i + 2]]);
 
         pgl_clip_triangle_t clip_triangle = {cv0, cv1, cv2};
-        int16_t last_index = pgl_clip(&clip_triangle, subtriangles);
+        pgl_clip(&clip_triangle, &buffer);
 
-        while (last_index >= 0)
+        while (buffer.size > 0)
         {
-            const pgl_clip_triangle_t* subtriangle = subtriangles + last_index;
-            last_index--;
+            const pgl_clip_triangle_t* subtriangle = pgl_clip_buffer_pop(&buffer);
 
             const Q_VEC4 ndc0 = q_homogeneous_point_normalise(subtriangle->v0.position);
             const Q_VEC4 ndc1 = q_homogeneous_point_normalise(subtriangle->v1.position);

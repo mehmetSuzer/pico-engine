@@ -3,7 +3,7 @@
 #define PICO_ENGINE_PGL_PGL_H
 
 #include <stddef.h>
-#include <stdio.h>
+#include <hardware/interp.h>
 
 #include "common/macros.h"
 #include "colour/colour.h"
@@ -38,7 +38,7 @@ void pgl_clear_colour(colour_t colour);
 void pgl_clear_depth(depth_t depth);
 void pgl_clear(pgl_framebuffer_bit_t bits);
 
-void pgl_bind_texture(const colour_t* texels, uint16_t row, uint16_t col);
+void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits);
 void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t index_count);
 const colour_t* pgl_colour_buffer();
 

@@ -1,10 +1,10 @@
 
 #include "device.h"
 
-#include "hardware/clocks.h"
-#include "hardware/spi.h"
-#include "hardware/pwm.h"
-#include "hardware/vreg.h"
+#include <hardware/clocks.h>
+#include <hardware/spi.h>
+#include <hardware/pwm.h>
+#include <hardware/vreg.h>
 
 #ifdef PICO_OVERCLOCK
     // The maximum clock frequency that I could achieve on my Raspberry Pi Pico

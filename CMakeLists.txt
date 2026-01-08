@@ -50,8 +50,7 @@ add_executable(${PROJECT_NAME}
     src/main.c
 )
 
-target_link_libraries(${PROJECT_NAME} 
-    PRIVATE
+target_link_libraries(${PROJECT_NAME} PRIVATE
     pico_stdlib
     qglm
     colour
@@ -61,8 +60,7 @@ target_link_libraries(${PROJECT_NAME}
     mesh
 )
 
-target_compile_options(${PROJECT_NAME} 
-    PRIVATE
+target_compile_options(${PROJECT_NAME} PRIVATE
     -Wall
     -Wextra
     -Wshadow
