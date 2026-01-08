@@ -34,16 +34,5 @@ typedef uint8_t rgb332_t;
 #define RGB332_TEAL        ((rgb332_t)0x17u) 
 #define RGB332_LIME        ((rgb332_t)0xB4u)
 
-static inline rgb332_t rgb332_half(rgb332_t colour)
-{
-    const rgb332_t clear_least_sig_colour_bit_mask = 0xDAu;
-    return ((colour & clear_least_sig_colour_bit_mask) >> 1);
-}
-
-static inline rgb332_t rgb332_average(rgb332_t c1, rgb332_t c2) 
-{
-    return rgb332_half(c1) + rgb332_half(c2);
-}
-
 #endif // PICO_ENGINE_COLOUR_RGB332_H
 

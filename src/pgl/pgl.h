@@ -2,20 +2,11 @@
 #ifndef PICO_ENGINE_PGL_PGL_H
 #define PICO_ENGINE_PGL_PGL_H
 
-#include <stddef.h>
 #include <hardware/interp.h>
 
 #include "common/macros.h"
-#include "colour/colour.h"
-#include "depth.h"
-
-#ifndef SCREEN_HEIGHT
-    #error "SCREEN_HEIGHT is not defined!"
-#endif
-
-#ifndef SCREEN_WIDTH
-    #error "SCREEN_WIDTH is not defined!"
-#endif
+#include "common/fixed_point.h"
+#include "swapchain/swapchain.h"
 
 typedef struct
 {
@@ -38,9 +29,10 @@ void pgl_clear_colour(colour_t colour);
 void pgl_clear_depth(depth_t depth);
 void pgl_clear(pgl_framebuffer_bit_t bits);
 
+// Returns true when a frame is received from the swapchain
+bool pgl_request_frame();
 void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits);
 void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t index_count);
-const colour_t* pgl_colour_buffer();
 
 #endif // PICO_ENGINE_PGL_PGL_H
 

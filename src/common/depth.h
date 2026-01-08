@@ -1,8 +1,8 @@
 
-#ifndef PICO_ENGINE_PGL_DEPTH_H
-#define PICO_ENGINE_PGL_DEPTH_H
+#ifndef PICO_ENGINE_COMMON_DEPTH_H
+#define PICO_ENGINE_COMMON_DEPTH_H
 
-#include "common/fixed_point.h"
+#include <stdint.h>
 
 #ifdef DEPTH_8BIT
     #define HAS_DEPTH_8BIT 1
@@ -44,13 +44,7 @@
     #define DEPTH_FURTHEST ((depth_t)0xFFFFu)
 #endif
 
-static inline depth_t depth_map(Q_TYPE depth, Q_TYPE near, Q_TYPE far)
-{
-    const int32_t bit_range = (int32_t)(DEPTH_FURTHEST - DEPTH_NEAREST);
-    const Q_TYPE ratio = q_div(q_sub(depth, near), q_sub(far, near));
-    const depth_t depth_bit = Q_TO_INT(q_add(q_mul_int(ratio, bit_range), Q_FROM_INT(DEPTH_NEAREST)));
-    return depth_bit;
-}
+#define DEPTH_RANGE (DEPTH_FURTHEST - DEPTH_NEAREST)
 
-#endif // PICO_ENGINE_PGL_DEPTH_H
+#endif // PICO_ENGINE_COMMON_DEPTH_H
 

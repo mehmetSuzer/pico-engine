@@ -5,8 +5,9 @@ add_library(device ${FILES})
 target_link_libraries(device PUBLIC
     pico_stdlib
     hardware_spi
+    hardware_dma
     hardware_pwm
-    colour
+    swapchain
 )
 
 target_include_directories(device PUBLIC

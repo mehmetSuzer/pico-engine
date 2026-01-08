@@ -67,9 +67,6 @@
     #define COLOUR_TEAL         RGB332_TEAL        
     #define COLOUR_LIME         RGB332_LIME        
 
-    #define COLOUR_HALF         rgb332_half
-    #define COLOUR_AVERAGE      rgb332_average
-
 #elif defined(RGB565)
 
     typedef rgb565_t colour_t;
@@ -101,9 +98,6 @@
     #define COLOUR_BROWN        RGB565_BROWN       
     #define COLOUR_TEAL         RGB565_TEAL        
     #define COLOUR_LIME         RGB565_LIME        
-
-    #define COLOUR_HALF         rgb565_half
-    #define COLOUR_AVERAGE      rgb565_average
 
 #endif
 

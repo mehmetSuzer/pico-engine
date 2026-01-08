@@ -156,16 +156,5 @@ typedef uint16_t rgb565_t;
 #define RGB565_YELLOW               ((rgb565_t)0xFFE0u)
 #define RGB565_YELLOWGREEN          ((rgb565_t)0x9E66u)
 
-static inline rgb565_t rgb565_half(rgb565_t colour)
-{
-    const rgb565_t clear_least_sig_colour_bit_mask = 0xF7DEu;
-    return ((colour & clear_least_sig_colour_bit_mask) >> 1);
-}
-
-static inline rgb565_t rgb565_average(rgb565_t c1, rgb565_t c2) 
-{
-    return rgb565_half(c1) + rgb565_half(c2);
-}
-
 #endif // PICO_ENGINE_COLOUR_RGB565_H
 

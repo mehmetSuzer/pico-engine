@@ -6,7 +6,7 @@ target_link_libraries(pgl PUBLIC
     pico_stdlib
     hardware_interp
     common
-    colour
+    swapchain
 )
 
 target_include_directories(pgl PUBLIC

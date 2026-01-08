@@ -25,12 +25,6 @@ typedef struct
 
 typedef struct
 {
-    colour_t colours[SCREEN_HEIGHT][SCREEN_WIDTH];
-    depth_t   depths[SCREEN_HEIGHT][SCREEN_WIDTH];
-} pgl_framebuffer_t;
-
-typedef struct
-{
     const colour_t* texels;
     uint width_bits;
     uint height_bits;
@@ -38,7 +32,7 @@ typedef struct
 
 typedef struct
 {
-    pgl_framebuffer_t framebuffer;
+    framebuffer_t* framebuffer;
 
     Q_MAT4 model;
     Q_MAT4 view;
@@ -55,10 +49,7 @@ typedef struct
 } pgl_context_t;
 
 static pgl_context_t context = {
-    .framebuffer = {
-        .colours = {{COLOUR_BLACK}},
-        .depths  = {{DEPTH_FURTHEST}},
-    },
+    .framebuffer = NULL,
 
     .model      = Q_MAT4_ZERO,
     .view       = Q_MAT4_ZERO,
@@ -218,10 +209,17 @@ static void pgl_clip(pgl_clip_triangle_t* clip_triangle, pgl_clip_buffer_t* buff
 
 // ------------------------------------- TESTS ------------------------------------- //
 
+static inline depth_t pgl_depth_map(Q_TYPE depth)
+{
+    const Q_TYPE ratio = q_div(q_sub(depth, context.near), q_sub(context.far, context.near));
+    const depth_t depth_bit = Q_TO_INT(q_add(q_mul_int(ratio, DEPTH_RANGE), Q_FROM_INT(DEPTH_NEAREST)));
+    return depth_bit;
+}
+
 static inline bool pgl_depth_test_passed(int32_t x, int32_t y, depth_t depth)
 {
     // Depth Test -> LESS
-    const depth_t depth_in_buffer = context.framebuffer.depths[y][x];
+    const depth_t depth_in_buffer = context.framebuffer->depths[y][x];
     return (depth < depth_in_buffer);
 }
 
@@ -265,8 +263,7 @@ void pgl_multisample_texture(colour_t *output, Q_TYPE u, Q_TYPE v, Q_TYPE du, Q_
 static pgl_clip_vertex_t pgl_vertex_shader(pgl_vertex_t vertex)
 {
     const Q_VEC4 point = q_homogeneous_point(vertex.position);
-    const Q_VEC4 pos_out = q_mat4_mul_vec4(context.projection, 
-        q_mat4_mul_vec4(context.view, q_mat4_mul_vec4(context.model, point)));
+    const Q_VEC4 pos_out = q_mat4_mul_vec4(context.projection, q_mat4_mul_vec4(context.view, q_mat4_mul_vec4(context.model, point)));
 
     const pgl_clip_vertex_t clip_vertex = {
         .position = pos_out,
@@ -348,7 +345,7 @@ static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1,
 			for (int32_t x = start_x; x < end_x; ++x) 
             {
                 const Q_TYPE inv_w = q_div(Q_ONE, q_interp(end_w, start_w, a));
-                const depth_t depth = depth_map(inv_w, context.near, context.far);
+                const depth_t depth = pgl_depth_map(inv_w);
 
 				if (pgl_depth_test_passed(x, y, depth)) 
                 {
@@ -357,8 +354,8 @@ static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1,
                         q_mul(q_interp(end_v, start_v, a), inv_w),
                     }};
                     const colour_t colour = pgl_fragment_shader(tex_coord);
-                    context.framebuffer.colours[y][x] = colour;
-                    context.framebuffer.depths [y][x] = depth;
+                    context.framebuffer->colours[y][x] = colour;
+                    context.framebuffer->depths [y][x] = depth;
 				}
 				a += sa;
 			}
@@ -411,7 +408,7 @@ static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1,
 			for (int32_t x = start_x; x < end_x; ++x) 
             {
                 const Q_TYPE inv_w = q_div(Q_ONE, q_interp(end_w, start_w, a));
-                const depth_t depth = depth_map(inv_w, context.near, context.far);
+                const depth_t depth = pgl_depth_map(inv_w);
 
 				if (pgl_depth_test_passed(x, y, depth)) 
                 {
@@ -420,8 +417,8 @@ static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1,
                         q_mul(q_interp(end_v, start_v, a), inv_w),
                     }};
                     const colour_t colour = pgl_fragment_shader(tex_coord);
-                    context.framebuffer.colours[y][x] = colour;
-                    context.framebuffer.depths [y][x] = depth;
+                    context.framebuffer->colours[y][x] = colour;
+                    context.framebuffer->depths [y][x] = depth;
 				}
 				a += sa;
 			}
@@ -469,7 +466,7 @@ void pgl_clear_depth(depth_t depth)
 }
 
 void pgl_clear(pgl_framebuffer_bit_t bits)
-{
+{    
     if (bits & PGL_COLOUR_BUFFER_BIT)
     {
         const colour_t colour = context.clear_colour;
@@ -480,7 +477,7 @@ void pgl_clear(pgl_framebuffer_bit_t bits)
         const uint32_t value = (colour << 16) | colour;
         const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 2;
     #endif
-        uint32_t* buffer = (uint32_t*)context.framebuffer.colours;
+        uint32_t* buffer = (uint32_t*)context.framebuffer->colours;
 
         for (uint32_t i = 0; i < count; ++i)
             buffer[i] = value;
@@ -496,11 +493,17 @@ void pgl_clear(pgl_framebuffer_bit_t bits)
         const uint32_t value = (depth << 16) | depth;
         const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 2;
     #endif
-        uint32_t* buffer = (uint32_t*)context.framebuffer.depths;
+        uint32_t* buffer = (uint32_t*)context.framebuffer->depths;
 
         for (uint32_t i = 0; i < count; ++i)
             buffer[i] = value;
     }
+}
+
+bool pgl_request_frame()
+{
+    context.framebuffer = swapchain_acquire_draw_image();
+    return (context.framebuffer != NULL);
 }
 
 void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits)
@@ -532,7 +535,7 @@ void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits)
 
 void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t index_count)
 {
-    pgl_clip_buffer_t buffer;
+    pgl_clip_buffer_t clip_buffer;
     for (uint16_t i = 0; i < index_count; i+=3)
     {
         pgl_clip_vertex_t cv0 = pgl_vertex_shader(vertices[indices[i + 0]]);
@@ -540,11 +543,11 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
         pgl_clip_vertex_t cv2 = pgl_vertex_shader(vertices[indices[i + 2]]);
 
         pgl_clip_triangle_t clip_triangle = {cv0, cv1, cv2};
-        pgl_clip(&clip_triangle, &buffer);
+        pgl_clip(&clip_triangle, &clip_buffer);
 
-        while (buffer.size > 0)
+        while (clip_buffer.size > 0)
         {
-            const pgl_clip_triangle_t* subtriangle = pgl_clip_buffer_pop(&buffer);
+            const pgl_clip_triangle_t* subtriangle = pgl_clip_buffer_pop(&clip_buffer);
 
             const Q_VEC4 ndc0 = q_homogeneous_point_normalise(subtriangle->v0.position);
             const Q_VEC4 ndc1 = q_homogeneous_point_normalise(subtriangle->v1.position);
@@ -588,10 +591,5 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
             pgl_draw_filled_triangle(rv0, rv1, rv2);
         }
     }
-}
-
-const colour_t* pgl_colour_buffer()
-{
-    return (colour_t*)context.framebuffer.colours;
 }
 
