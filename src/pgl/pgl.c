@@ -11,9 +11,7 @@ typedef struct
 
 typedef struct
 {
-    pgl_clip_vertex_t v0;
-    pgl_clip_vertex_t v1;
-    pgl_clip_vertex_t v2;
+    pgl_clip_vertex_t vertices[3];
 } pgl_clip_triangle_t;
 
 typedef struct
@@ -104,7 +102,6 @@ static void pgl_clip(pgl_clip_triangle_t* clip_triangle, pgl_clip_buffer_t* buff
     };
 
     pgl_clip_buffer_t buffer;
-
     buffer.size = 0;
     buffer_out->size = 0;
 
@@ -119,14 +116,19 @@ static void pgl_clip(pgl_clip_triangle_t* clip_triangle, pgl_clip_buffer_t* buff
         while (pop_buffer->size > 0) 
         {
             pgl_clip_triangle_t* tri = pgl_clip_buffer_pop(pop_buffer);
-            Q_TYPE dot0 = q_vec4_dot(tri->v0.position, clip_plane_vectors[i]);
-            Q_TYPE dot1 = q_vec4_dot(tri->v1.position, clip_plane_vectors[i]);
-            Q_TYPE dot2 = q_vec4_dot(tri->v2.position, clip_plane_vectors[i]);
+            Q_TYPE dots[] = {
+                q_vec4_dot(tri->vertices[0].position, clip_plane_vectors[i]),
+                q_vec4_dot(tri->vertices[1].position, clip_plane_vectors[i]),
+                q_vec4_dot(tri->vertices[2].position, clip_plane_vectors[i]),
+            };
 
-            const bool v0_inside = q_gt(q_mul(clip_plane_vectors[i].w, dot0), Q_ZERO);
-            const bool v1_inside = q_gt(q_mul(clip_plane_vectors[i].w, dot1), Q_ZERO);
-            const bool v2_inside = q_gt(q_mul(clip_plane_vectors[i].w, dot2), Q_ZERO);
-            const int16_t num_inside = v0_inside + v1_inside + v2_inside;
+            const bool insides[] = {
+                q_gt(q_mul(clip_plane_vectors[i].w, dots[0]), Q_ZERO),
+                q_gt(q_mul(clip_plane_vectors[i].w, dots[1]), Q_ZERO),
+                q_gt(q_mul(clip_plane_vectors[i].w, dots[2]), Q_ZERO),
+            };
+
+            const int16_t num_inside = insides[0] + insides[1] + insides[2];
 
             if (num_inside == 3)
             {
@@ -134,73 +136,82 @@ static void pgl_clip(pgl_clip_triangle_t* clip_triangle, pgl_clip_buffer_t* buff
             }
             else if (num_inside == 2) 
             {
-                // Ensure that v0 is the vertex that is not inside
-                if (!v1_inside)
+                uint32_t out_index;
+                uint32_t in_index1;
+                uint32_t in_index2;
+
+                if (!insides[0])
                 {
-                    SWAP(&tri->v0, &tri->v1);
-                    SWAP(&dot0, &dot1);
+                    out_index = 0;
+                    in_index1 = 1;
+                    in_index2 = 2;
                 }
-                else if (!v2_inside)
+                else if (!insides[1])
                 {
-                    SWAP(&tri->v0, &tri->v2);
-                    SWAP(&dot0, &dot2);
-                }
-
-                const Q_TYPE alpha10 = q_div(dot0, q_sub(dot0, dot1));
-                const Q_TYPE alpha20 = q_div(dot0, q_sub(dot0, dot2));
-
-                const pgl_clip_vertex_t vertex10 = {
-                    q_vec4_interp(tri->v1.position,  tri->v0.position,  alpha10),
-                    q_vec2_interp(tri->v1.tex_coord, tri->v0.tex_coord, alpha10),
-                };
-                const pgl_clip_vertex_t vertex20 = {
-                    q_vec4_interp(tri->v2.position,  tri->v0.position,  alpha20),
-                    q_vec2_interp(tri->v2.tex_coord, tri->v0.tex_coord, alpha20),
-                };
-
-                // Preserve the winding order
-                if (!v0_inside)
-                {
-                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){vertex10, tri->v1, tri->v2});
-                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){vertex10, tri->v2, vertex20});
+                    out_index = 1;
+                    in_index1 = 2;
+                    in_index2 = 0;
                 }
                 else
                 {
-                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){vertex10, tri->v2, tri->v1});
-                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){vertex10, vertex20, tri->v2});
+                    out_index = 2;
+                    in_index1 = 0;
+                    in_index2 = 1;
                 }
+
+                const Q_TYPE alpha1 = q_div(dots[out_index], q_sub(dots[out_index], dots[in_index1]));
+                const Q_TYPE alpha2 = q_div(dots[out_index], q_sub(dots[out_index], dots[in_index2]));
+
+                const pgl_clip_vertex_t vertex1 = {
+                    q_vec4_interp(tri->vertices[in_index1].position,  tri->vertices[out_index].position,  alpha1),
+                    q_vec2_interp(tri->vertices[in_index1].tex_coord, tri->vertices[out_index].tex_coord, alpha1),
+                };
+                const pgl_clip_vertex_t vertex2 = {
+                    q_vec4_interp(tri->vertices[in_index2].position,  tri->vertices[out_index].position,  alpha2),
+                    q_vec2_interp(tri->vertices[in_index2].tex_coord, tri->vertices[out_index].tex_coord, alpha2),
+                };
+
+                pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){vertex1, tri->vertices[in_index1], tri->vertices[in_index2]});
+                pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){vertex1, tri->vertices[in_index2], vertex2});
             }
             else if (num_inside == 1)
             {
-                // Ensure that v0 is the vertex that is inside
-                if (v1_inside)
+                uint32_t in_index;
+                uint32_t out_index1;
+                uint32_t out_index2;
+
+                if (insides[0])
                 {
-                    SWAP(&tri->v0, &tri->v1);
-                    SWAP(&dot0, &dot1);
+                    in_index   = 0;
+                    out_index1 = 1;
+                    out_index2 = 2;
                 }
-                else if (v2_inside)
+                else if (insides[1])
                 {
-                    SWAP(&tri->v0, &tri->v2);
-                    SWAP(&dot0, &dot2);
+                    in_index   = 1;
+                    out_index1 = 2;
+                    out_index2 = 0;
                 }
-
-                const Q_TYPE alpha10 = q_div(dot0, q_sub(dot0, dot1));
-                const Q_TYPE alpha20 = q_div(dot0, q_sub(dot0, dot2));
-
-                const pgl_clip_vertex_t vertex10 = {
-                    q_vec4_interp(tri->v1.position,  tri->v0.position,  alpha10),
-                    q_vec2_interp(tri->v1.tex_coord, tri->v0.tex_coord, alpha10),
-                };
-                const pgl_clip_vertex_t vertex20 = {
-                    q_vec4_interp(tri->v2.position,  tri->v0.position,  alpha20),
-                    q_vec2_interp(tri->v2.tex_coord, tri->v0.tex_coord, alpha20),
-                };
-
-                // Preserve the winding order
-                if (v0_inside) 
-                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){tri->v0, vertex10, vertex20});
                 else
-                    pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){tri->v0, vertex20, vertex10});
+                {
+                    in_index   = 2;
+                    out_index1 = 0;
+                    out_index2 = 1;
+                }
+
+                const Q_TYPE alpha1 = q_div(dots[in_index], q_sub(dots[in_index], dots[out_index1]));
+                const Q_TYPE alpha2 = q_div(dots[in_index], q_sub(dots[in_index], dots[out_index2]));
+
+                const pgl_clip_vertex_t vertex1 = {
+                    q_vec4_interp(tri->vertices[out_index1].position,  tri->vertices[in_index].position,  alpha1),
+                    q_vec2_interp(tri->vertices[out_index1].tex_coord, tri->vertices[in_index].tex_coord, alpha1),
+                };
+                const pgl_clip_vertex_t vertex2 = {
+                    q_vec4_interp(tri->vertices[out_index2].position,  tri->vertices[in_index].position,  alpha2),
+                    q_vec2_interp(tri->vertices[out_index2].tex_coord, tri->vertices[in_index].tex_coord, alpha2),
+                };
+
+                pgl_clip_buffer_push(push_buffer, (pgl_clip_triangle_t){tri->vertices[in_index], vertex1, vertex2});
             }
         }
         SWAP(&pop_buffer, &push_buffer);
@@ -342,7 +353,7 @@ static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1,
             Q_TYPE a = Q_ZERO;
 			const Q_TYPE sa = q_div(Q_ONE, Q_FROM_INT(end_x - start_x));
 
-			for (int32_t x = start_x; x < end_x; ++x) 
+			for (int32_t x = start_x; x <= end_x; ++x) 
             {
                 const Q_TYPE inv_w = q_div(Q_ONE, q_interp(end_w, start_w, a));
                 const depth_t depth = pgl_depth_map(inv_w);
@@ -405,7 +416,7 @@ static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1,
             Q_TYPE a = Q_ZERO;
 			const Q_TYPE sa = q_div(Q_ONE, Q_FROM_INT(end_x - start_x));
 
-			for (int32_t x = start_x; x < end_x; ++x) 
+			for (int32_t x = start_x; x <= end_x; ++x) 
             {
                 const Q_TYPE inv_w = q_div(Q_ONE, q_interp(end_w, start_w, a));
                 const depth_t depth = pgl_depth_map(inv_w);
@@ -549,9 +560,9 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
         {
             const pgl_clip_triangle_t* subtriangle = pgl_clip_buffer_pop(&clip_buffer);
 
-            const Q_VEC4 ndc0 = q_homogeneous_point_normalise(subtriangle->v0.position);
-            const Q_VEC4 ndc1 = q_homogeneous_point_normalise(subtriangle->v1.position);
-            const Q_VEC4 ndc2 = q_homogeneous_point_normalise(subtriangle->v2.position);
+            const Q_VEC4 ndc0 = q_homogeneous_point_normalise(subtriangle->vertices[0].position);
+            const Q_VEC4 ndc1 = q_homogeneous_point_normalise(subtriangle->vertices[1].position);
+            const Q_VEC4 ndc2 = q_homogeneous_point_normalise(subtriangle->vertices[2].position);
 
             const Q_VEC2 v0_xy_ndc = (Q_VEC2){{ndc0.x, ndc0.y}};
             const Q_VEC2 v1_xy_ndc = (Q_VEC2){{ndc1.x, ndc1.y}};
@@ -563,28 +574,28 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
             const Q_VEC4 sc1 = q_mat4_mul_vec4(context.viewport, ndc1);
             const Q_VEC4 sc2 = q_mat4_mul_vec4(context.viewport, ndc2);
 
-            const Q_TYPE inv_depth0 = q_div(Q_ONE, subtriangle->v0.position.w);
-            const Q_TYPE inv_depth1 = q_div(Q_ONE, subtriangle->v1.position.w);
-            const Q_TYPE inv_depth2 = q_div(Q_ONE, subtriangle->v2.position.w);
+            const Q_TYPE inv_depth0 = q_div(Q_ONE, subtriangle->vertices[0].position.w);
+            const Q_TYPE inv_depth1 = q_div(Q_ONE, subtriangle->vertices[1].position.w);
+            const Q_TYPE inv_depth2 = q_div(Q_ONE, subtriangle->vertices[2].position.w);
 
             const pgl_rast_vertex_t rv0 = {
                 .x = Q_TO_INT(sc0.x),
                 .y = Q_TO_INT(sc0.y),
-                .tex_coord = q_vec2_scale(subtriangle->v0.tex_coord, inv_depth0),
+                .tex_coord = q_vec2_scale(subtriangle->vertices[0].tex_coord, inv_depth0),
                 .inv_depth = inv_depth0,
             };
 
             const pgl_rast_vertex_t rv1 = {
                 .x = Q_TO_INT(sc1.x),
                 .y = Q_TO_INT(sc1.y),
-                .tex_coord = q_vec2_scale(subtriangle->v1.tex_coord, inv_depth1),
+                .tex_coord = q_vec2_scale(subtriangle->vertices[1].tex_coord, inv_depth1),
                 .inv_depth = inv_depth1,
             };
 
             const pgl_rast_vertex_t rv2 = {
                 .x = Q_TO_INT(sc2.x),
                 .y = Q_TO_INT(sc2.y),
-                .tex_coord = q_vec2_scale(subtriangle->v2.tex_coord, inv_depth2),
+                .tex_coord = q_vec2_scale(subtriangle->vertices[2].tex_coord, inv_depth2),
                 .inv_depth = inv_depth2,
             };
 
