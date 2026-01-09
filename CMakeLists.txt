@@ -19,7 +19,7 @@ set(PICO_BOARD pico2)
 # 4- Set the colour format you prefer (RGB332 or RGB565)
 # 5- Set the depth precision you need (DEPTH_8BIT or DEPTH_16BIT)
 add_compile_definitions(
-    CLOCK_FREQUENCY_KHZ=300000
+    CLOCK_FREQUENCY_KHZ=380000
     SCREEN_WIDTH=240
     SCREEN_HEIGHT=240
     Q16_16
@@ -37,10 +37,10 @@ project(pico-engine
 
 pico_sdk_init()
 
-add_subdirectory(src/swapchain)
-add_subdirectory(src/mesh)
+add_subdirectory(src/graphics)
 add_subdirectory(src/pgl)
 add_subdirectory(src/device)
+add_subdirectory(src/swapchain)
 add_subdirectory(src/common)
 add_subdirectory(src/colour)
 add_subdirectory(libs/qglm)
@@ -50,9 +50,9 @@ add_executable(${PROJECT_NAME}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    swapchain
-    mesh
+    graphics
     pgl
+    swapchain
     device
     common
     colour
