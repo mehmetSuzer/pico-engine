@@ -103,6 +103,7 @@ int main()
         .camera = {Q_FOURTHPI, Q_FROM_FLOAT(0.1f), Q_FROM_FLOAT(100.0f)},
     });
 
+    /*
     for (uint32_t i = 0; i < SCENE_MAX_MODEL_COUNT; ++i)
     {
         scene_add_model(&scene, (model_t){
@@ -114,6 +115,16 @@ int main()
             .mesh = cube_mesh,
         });
     }
+    */
+
+    scene_add_model(&scene, (model_t){
+        .transform = {
+            {{Q_ZERO, Q_ZERO, Q_M_ONE}},
+            q_quat_angle_axis(Q_THIRDPI, q_vec3_normalise(Q_VEC3_ONE)), 
+            Q_VEC3_ONE,
+        },
+        .mesh = cube_mesh,
+    });
 
     pgl_bind_texture((colour_t*)heart_texture, HEART_TEXTURE_WIDTH_BITS, HEART_TEXTURE_HEIGHT_BITS);
 
@@ -152,10 +163,15 @@ int main()
             const uint32_t dt_frame_us = curr_time_us - prev_frame_time_us;
             prev_frame_time_us = curr_time_us;
             const uint32_t fps = 1000000 / dt_frame_us;
-            printf("FPS: %lu - Delta Time: %lu us\n", fps, dt_frame_us);
+            // printf("FPS: %lu - Delta Time: %lu us\n", fps, dt_frame_us);
 
+            const uint32_t start = time_us_32();
             pgl_clear(PGL_COLOUR_BUFFER_BIT | PGL_DEPTH_BUFFER_BIT);
             scene_draw(&scene);
+            const uint32_t end = time_us_32();
+            const uint32_t dt = end - start;
+            printf("dt: %lu us\n", dt);
+
             swapchain_request_swap();
         }
     }

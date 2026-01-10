@@ -35,13 +35,6 @@ typedef struct
 
 typedef struct
 {
-    const colour_t* texels;
-    uint width_bits;
-    uint height_bits;
-} pgl_texture_t;
-
-typedef struct
-{
     framebuffer_t* framebuffer;
 
     Q_MAT4 model;
@@ -51,8 +44,6 @@ typedef struct
 
     Q_TYPE near;
     Q_TYPE far;
-
-    pgl_texture_t texture;
     
     colour_t clear_colour;
     depth_t  clear_depth;
@@ -69,32 +60,11 @@ static pgl_context_t context = {
     .near = Q_ZERO,
     .far  = Q_MAX,
 
-    .texture = {
-        .texels      = NULL,
-        .width_bits  = 0u,
-        .height_bits = 0u,
-    },
-
     .clear_colour = COLOUR_BLACK,
     .clear_depth  = DEPTH_FURTHEST,
 };
 
 // ------------------------------------- CLIP ------------------------------------- // 
-
-static inline pgl_clip_vertex_t pgl_intersect_interp(
-    const pgl_clip_vertex_t* v0,
-    const pgl_clip_vertex_t* v1,
-    const pgl_clip_plane_t* p)
-{
-    const Q_TYPE d0 = q_vec4_dot(v0->position, p->normal);
-    const Q_TYPE d1 = q_vec4_dot(v1->position, p->normal);
-    const Q_TYPE t  = q_div(d1, q_sub(d1, d0));
-
-    return (pgl_clip_vertex_t){
-        .position  = q_vec4_interp(v0->position,  v1->position,  t),
-        .tex_coord = q_vec2_interp(v0->tex_coord, v1->tex_coord, t),
-    };
-}
 
 static void pgl_clip_poly_plane(
     const pgl_clip_poly_t* restrict in,
@@ -108,26 +78,26 @@ static void pgl_clip_poly_plane(
         const pgl_clip_vertex_t* curr = &in->v[i];
         const pgl_clip_vertex_t* prev = &in->v[(i + in->count - 1) % in->count];
 
-        const Q_TYPE dot_curr = q_vec4_dot(curr->position, plane->normal);
-        const Q_TYPE dot_prev = q_vec4_dot(prev->position, plane->normal);
+        const Q_TYPE curr_dot = q_vec4_dot(curr->position, plane->normal);
+        const Q_TYPE prev_dot = q_vec4_dot(prev->position, plane->normal);
 
-        const bool curr_inside = q_gt(dot_curr, Q_ZERO);
-        const bool prev_inside = q_gt(dot_prev, Q_ZERO);
+        const bool curr_inside = q_gt(curr_dot, Q_ZERO);
+        const bool prev_inside = q_gt(prev_dot, Q_ZERO);
 
-        if ((curr_inside ^ prev_inside) && out->count < CLIP_POLY_MAX_VERTEX)
+        if (curr_inside ^ prev_inside)
         {
-            const Q_TYPE t  = q_div(dot_curr, q_sub(dot_curr, dot_prev));
+            const Q_TYPE t  = q_div(curr_dot, q_sub(curr_dot, prev_dot));
             out->v[out->count++] = (pgl_clip_vertex_t){
                 .position  = q_vec4_interp(prev->position,  curr->position,  t),
                 .tex_coord = q_vec2_interp(prev->tex_coord, curr->tex_coord, t),
             };
         }
-        if (curr_inside && out->count < CLIP_POLY_MAX_VERTEX)
+        if (curr_inside)
             out->v[out->count++] = *curr;
     }
 }
 
-static uint32_t pgl_clip(const pgl_clip_triangle_t* clip_triangle, pgl_clip_triangle_t* triangle_out)
+static uint32_t pgl_clip(const pgl_clip_triangle_t* restrict clip_triangle, pgl_clip_triangle_t* restrict triangle_out)
 {
     static const pgl_clip_plane_t planes[] = {
         {{ Q_ZERO,  Q_ZERO,   Q_ONE, Q_ONE}}, // Near     : +Z + W > 0.0
@@ -168,11 +138,11 @@ static uint32_t pgl_clip(const pgl_clip_triangle_t* clip_triangle, pgl_clip_tria
 
 // ------------------------------------- TESTS ------------------------------------- //
 
-static inline depth_t pgl_depth_map(Q_TYPE depth)
+static inline depth_t pgl_depth_map(Q_TYPE q_depth)
 {
-    const Q_TYPE ratio = q_div(q_sub(depth, context.near), q_sub(context.far, context.near));
-    const depth_t depth_bit = Q_TO_INT(q_add(q_mul_int(ratio, DEPTH_RANGE), Q_FROM_INT(DEPTH_NEAREST)));
-    return depth_bit;
+    const Q_TYPE ratio = q_div(q_sub(q_depth, context.near), q_sub(context.far, context.near));
+    const depth_t depth = Q_TO_INT(q_add(q_mul_int(ratio, DEPTH_RANGE), Q_FROM_INT(DEPTH_NEAREST)));
+    return depth;
 }
 
 static inline bool pgl_depth_test_passed(int32_t x, int32_t y, depth_t depth)
@@ -197,16 +167,16 @@ static inline bool pgl_face_is_culled(Q_VEC2 v0_xy_ndc, Q_VEC2 v1_xy_ndc, Q_VEC2
 // REQUIREMENT: du and dv must be non-negative
 void pgl_multisample_texture(colour_t *output, Q_TYPE u, Q_TYPE v, Q_TYPE du, Q_TYPE dv, uint32_t count) 
 {
-    interp0->accum[0] = q_mul_pow_2(u, context.texture.width_bits); 
-    interp0->base[0] = q_mul_pow_2(du, context.texture.width_bits);
-    interp0->accum[1] = q_mul_pow_2(v, context.texture.height_bits);
-    interp0->base[1] = q_mul_pow_2(dv, context.texture.height_bits);
+    interp0->accum[0] = u;
+    interp0->base[0] = du;
+    interp0->accum[1] = v;
+    interp0->base[1] = dv;
 
     for (uint32_t i = 0; i < count; ++i) 
     {
         // equivalent to
-        // uint32_t x = (accum0 >> Q_FRAC_BITS) & ((1 << width_bits)  - 1);
-        // uint32_t y = (accum1 >> Q_FRAC_BITS) & ((1 << height_bits) - 1);
+        // uint32_t x = (accum0 >> (Q_FRAC_BITS - width_bits))  & ((1 << width_bits)  - 1);
+        // uint32_t y = (accum1 >> (Q_FRAC_BITS - height_bits)) & ((1 << height_bits) - 1);
         // const colour_t* *address = texture + ((x + (y << width_bits)) << bpp_shift);
         // output[i] = *address;
         // accum0 = du + accum0;
@@ -438,6 +408,7 @@ void pgl_clear(pgl_framebuffer_bit_t bits)
     #endif
         uint32_t* buffer = (uint32_t*)context.framebuffer->colours;
 
+        #pragma GCC unroll 32
         for (uint32_t i = 0; i < count; ++i)
             buffer[i] = value;
     }
@@ -454,6 +425,7 @@ void pgl_clear(pgl_framebuffer_bit_t bits)
     #endif
         uint32_t* buffer = (uint32_t*)context.framebuffer->depths;
 
+        #pragma GCC unroll 32
         for (uint32_t i = 0; i < count; ++i)
             buffer[i] = value;
     }
@@ -467,10 +439,6 @@ bool pgl_request_frame()
 
 void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits)
 {
-    context.texture.texels = texels;
-    context.texture.width_bits = width_bits;
-    context.texture.height_bits = height_bits;
-
 #if defined(RGB332)
     const uint bpp_shift = 0; // log2(1 byte)
 #elif defined(RGB565)
@@ -479,17 +447,17 @@ void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits)
 
     interp_config cfg0 = interp_default_config();
     interp_config_set_add_raw(&cfg0, true);
-    interp_config_set_shift(&cfg0, Q_FRAC_BITS - bpp_shift);
+    interp_config_set_shift(&cfg0, Q_FRAC_BITS - width_bits - bpp_shift);
     interp_config_set_mask(&cfg0, bpp_shift, width_bits + bpp_shift - 1);
     interp_set_config(interp0, 0, &cfg0);
 
     interp_config cfg1 = interp_default_config();
     interp_config_set_add_raw(&cfg1, true);
-    interp_config_set_shift(&cfg1, Q_FRAC_BITS - width_bits - bpp_shift);
+    interp_config_set_shift(&cfg1, Q_FRAC_BITS - height_bits - width_bits - bpp_shift);
     interp_config_set_mask(&cfg1, width_bits + bpp_shift, width_bits + height_bits + bpp_shift - 1);
     interp_set_config(interp0, 1, &cfg1);
 
-    interp0->base[2] = (uintptr_t)context.texture.texels;
+    interp0->base[2] = (uintptr_t)texels;
 }
 
 void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t index_count)
@@ -512,11 +480,8 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
             const Q_VEC4 ndc1 = q_homogeneous_point_normalise(subtriangle->v[1].position);
             const Q_VEC4 ndc2 = q_homogeneous_point_normalise(subtriangle->v[2].position);
 
-            const Q_VEC2 v0_xy_ndc = (Q_VEC2){{ndc0.x, ndc0.y}};
-            const Q_VEC2 v1_xy_ndc = (Q_VEC2){{ndc1.x, ndc1.y}};
-            const Q_VEC2 v2_xy_ndc = (Q_VEC2){{ndc2.x, ndc2.y}};
-
-            if (pgl_face_is_culled(v0_xy_ndc, v1_xy_ndc, v2_xy_ndc)) continue;
+            if (pgl_face_is_culled((Q_VEC2){{ndc0.x, ndc0.y}}, (Q_VEC2){{ndc1.x, ndc1.y}}, (Q_VEC2){{ndc2.x, ndc2.y}})) 
+                continue;
 
             const Q_VEC4 sc0 = q_mat4_mul_vec4(context.viewport, ndc0);
             const Q_VEC4 sc1 = q_mat4_mul_vec4(context.viewport, ndc1);

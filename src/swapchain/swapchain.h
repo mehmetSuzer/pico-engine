@@ -15,10 +15,14 @@
     #error "SCREEN_WIDTH is not defined!"
 #endif
 
+#if (SCREEN_HEIGHT * SCREEN_WIDTH) % 4 != 0
+    #error "SCREEN_HEIGHT * SCREEN_WIDTH is not divislbe by 4. The number of pixels must be a multiple of 4!"
+#endif
+
 typedef struct
 {
-    colour_t colours[SCREEN_HEIGHT][SCREEN_WIDTH];
-    depth_t   depths[SCREEN_HEIGHT][SCREEN_WIDTH];
+    colour_t colours[SCREEN_HEIGHT][SCREEN_WIDTH] __attribute__((aligned(4)));
+    depth_t   depths[SCREEN_HEIGHT][SCREEN_WIDTH] __attribute__((aligned(4)));
 } framebuffer_t;
 
 framebuffer_t* swapchain_acquire_draw_image();

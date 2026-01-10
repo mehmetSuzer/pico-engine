@@ -11,7 +11,7 @@
 typedef struct
 {
     Q_VEC3 position;
-    Q_VEC2 tex_coord;
+    Q_VEC2 tex_coord; // Texture coordinates must have non-negative values
 } pgl_vertex_t;
 
 typedef enum
