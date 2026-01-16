@@ -1,4 +1,5 @@
 
+#include <stdio.h>
 #include "pgl.h"
 
 // ------------------------------------- TYPES ------------------------------------- //
@@ -14,11 +15,11 @@ typedef struct
 
 typedef struct
 {
-    pgl_clip_vertex_t v[3];
+    pgl_clip_vertex_t verts[3];
 } pgl_clip_triangle_t;
 
 typedef struct {
-    pgl_clip_vertex_t v[CLIP_POLY_MAX_VERTEX];
+    pgl_clip_vertex_t verts[CLIP_POLY_MAX_VERTEX];
     uint32_t count;
 } pgl_clip_poly_t;
 
@@ -29,7 +30,7 @@ typedef struct {
 typedef struct
 {
     int32_t x, y;
-    Q_VEC2 tex_coord;
+    Q_TYPE  u, v;
     Q_TYPE inv_depth;
 } pgl_rast_vertex_t;
 
@@ -80,11 +81,10 @@ static void pgl_clip_poly_plane(
 
     while (curr_index < in->count)
     {
-        const pgl_clip_vertex_t* curr = &in->v[curr_index];
-        const pgl_clip_vertex_t* prev = &in->v[prev_index];
+        const pgl_clip_vertex_t* curr = &in->verts[curr_index];
+        const pgl_clip_vertex_t* prev = &in->verts[prev_index];
 
-        prev_index = curr_index;
-        curr_index++;
+        prev_index = curr_index++;
 
         const Q_TYPE curr_dot = q_vec4_dot(curr->position, plane->normal);
         const Q_TYPE prev_dot = q_vec4_dot(prev->position, plane->normal);
@@ -95,14 +95,14 @@ static void pgl_clip_poly_plane(
         if (curr_inside != prev_inside)
         {
             const Q_TYPE t  = q_div(curr_dot, q_sub(curr_dot, prev_dot));
-            out->v[out->count++] = (pgl_clip_vertex_t){
+            out->verts[out->count++] = (pgl_clip_vertex_t){
                 .position  = q_vec4_interp(prev->position,  curr->position,  t),
                 .tex_coord = q_vec2_interp(prev->tex_coord, curr->tex_coord, t),
             };
         }
         
         if (curr_inside)
-            out->v[out->count++] = *curr;
+            out->verts[out->count++] = *curr;
     }
 }
 
@@ -119,9 +119,9 @@ static uint32_t pgl_clip(const pgl_clip_triangle_t* restrict clip_triangle, pgl_
 
     pgl_clip_poly_t poly0;
     pgl_clip_poly_t poly1;
-    poly0.v[0] = clip_triangle->v[0];
-    poly0.v[1] = clip_triangle->v[1];
-    poly0.v[2] = clip_triangle->v[2];
+    poly0.verts[0] = clip_triangle->verts[0];
+    poly0.verts[1] = clip_triangle->verts[1];
+    poly0.verts[2] = clip_triangle->verts[2];
     poly0.count = 3;
 
     pgl_clip_poly_t* poly_in  = &poly0;
@@ -137,9 +137,9 @@ static uint32_t pgl_clip(const pgl_clip_triangle_t* restrict clip_triangle, pgl_
     for (uint32_t i = 1; i + 1 < poly_in->count; ++i)
     {
         triangle_out[triangle_count++] = (pgl_clip_triangle_t){
-            poly_in->v[0], 
-            poly_in->v[i], 
-            poly_in->v[i + 1],
+            poly_in->verts[0], 
+            poly_in->verts[i], 
+            poly_in->verts[i + 1],
         };
     }
     return triangle_count;
@@ -173,13 +173,13 @@ static inline bool pgl_face_is_culled(Q_VEC2 v0_xy_ndc, Q_VEC2 v1_xy_ndc, Q_VEC2
 // ------------------------------------- TEXTURE ------------------------------------- //
 
 // REQUIREMENT:  u and  v must be non-negative
-// REQUIREMENT: du and dv must be non-negative
-void pgl_multisample_texture(colour_t *output, Q_TYPE u, Q_TYPE v, Q_TYPE du, Q_TYPE dv, uint32_t count) 
+// REQUIREMENT: su and sv must be non-negative
+void pgl_multisample_texture(colour_t *output, Q_TYPE u, Q_TYPE v, Q_TYPE su, Q_TYPE sv, uint32_t count) 
 {
     interp0->accum[0] = u;
-    interp0->base[0] = du;
+    interp0->base[0] = su;
     interp0->accum[1] = v;
-    interp0->base[1] = dv;
+    interp0->base[1] = sv;
 
     for (uint32_t i = 0; i < count; ++i) 
     {
@@ -188,8 +188,8 @@ void pgl_multisample_texture(colour_t *output, Q_TYPE u, Q_TYPE v, Q_TYPE du, Q_
         // uint32_t y = (accum1 >> (Q_FRAC_BITS - height_bits)) & ((1 << height_bits) - 1);
         // const colour_t* *address = texture + ((x + (y << width_bits)) << bpp_shift);
         // output[i] = *address;
-        // accum0 = du + accum0;
-        // accum1 = dv + accum1;
+        // accum0 = su + accum0;
+        // accum1 = sv + accum1;
 
         // popping the result advances to the next iteration
         output[i] = *(const colour_t*)interp0->pop[2];
@@ -210,177 +210,204 @@ static pgl_clip_vertex_t pgl_vertex_shader(pgl_vertex_t vertex)
     return clip_vertex;
 }
 
-static colour_t pgl_fragment_shader(Q_VEC2 tex_coord)
+static colour_t pgl_fragment_shader(Q_TYPE u, Q_TYPE v)
 {
     colour_t colour;
-    pgl_multisample_texture(&colour, tex_coord.u, tex_coord.v, Q_ZERO, Q_ZERO, 1);
+    pgl_multisample_texture(&colour, u, v, Q_ZERO, Q_ZERO, 1);
     return colour;
 }
 
 // ------------------------------------- RASTERISER ------------------------------------- //
 
-static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1, pgl_rast_vertex_t v2)
+static inline void pgl_rasterise_scanline(
+    Q_TYPE left_x, Q_TYPE right_x,
+    Q_TYPE left_u, Q_TYPE right_u,
+    Q_TYPE left_v, Q_TYPE right_v,
+    Q_TYPE left_w, Q_TYPE right_w,
+    int32_t y)
+{
+    Q_TYPE u = left_u;
+    Q_TYPE v = left_v;
+    Q_TYPE w = left_w;
+
+    const Q_TYPE x_diff = q_sub(right_x, left_x);
+
+    const Q_TYPE su = q_ne(x_diff, Q_ZERO) ? q_div(q_sub(right_u, left_u), x_diff) : Q_ZERO;
+    const Q_TYPE sv = q_ne(x_diff, Q_ZERO) ? q_div(q_sub(right_v, left_v), x_diff) : Q_ZERO;
+    const Q_TYPE sw = q_ne(x_diff, Q_ZERO) ? q_div(q_sub(right_w, left_w), x_diff) : Q_ZERO;
+
+    const int32_t left  = Q_TO_INT(left_x);
+    const int32_t right = Q_TO_INT(right_x);
+
+    for (int32_t x = left; x <= right; ++x)
+    {
+        const Q_TYPE inv_w = q_div(Q_ONE, w);
+        const depth_t depth = pgl_depth_map(inv_w);
+
+		if (pgl_depth_test_passed(x, y, depth))
+        {
+            const colour_t colour = pgl_fragment_shader(
+                q_mul(u, inv_w), q_mul(v, inv_w));
+
+            context.draw_image->colours[y][x] = colour;
+            context.depths[y][x] = depth;
+		}
+
+        u = q_add(u, su);
+        v = q_add(v, sv);
+        w = q_add(w, sw);
+	}
+}
+
+static void pgl_rasterise_filled_triangle(pgl_rast_vertex_t vert0, pgl_rast_vertex_t vert1, pgl_rast_vertex_t vert2)
 {
     // Sort vertices with respect to their y coordinates
-    // v0.y <= v1.y <= v2.y
-    if (v0.y > v1.y) SWAP(&v0, &v1);
-    if (v1.y > v2.y) SWAP(&v1, &v2);
-    if (v0.y > v1.y) SWAP(&v0, &v1);
+    // vert0.y <= vert1.y <= vert2.y
+    if (vert0.y > vert1.y) { SWAP(&vert0, &vert1); }
+    if (vert1.y > vert2.y) { SWAP(&vert1, &vert2); }
+    if (vert0.y > vert1.y) { SWAP(&vert0, &vert1); }
 
-    Q_TYPE dx1 = Q_FROM_INT(v1.x - v0.x);
-    Q_TYPE dy1 = Q_FROM_INT(v1.y - v0.y);
-    Q_TYPE du1 = q_sub(v1.tex_coord.u, v0.tex_coord.u);
-    Q_TYPE dv1 = q_sub(v1.tex_coord.v, v0.tex_coord.v);
-    Q_TYPE dw1 = q_sub(v1.inv_depth, v0.inv_depth);
+    const Q_TYPE dx20 = Q_FROM_INT(vert2.x - vert0.x);
+    const Q_TYPE dy20 = Q_FROM_INT(vert2.y - vert0.y);
+    const Q_TYPE du20 = q_sub(vert2.u, vert0.u);
+    const Q_TYPE dv20 = q_sub(vert2.v, vert0.v);
+    const Q_TYPE dw20 = q_sub(vert2.inv_depth, vert0.inv_depth);
 
-    Q_TYPE inv_dy1 = q_div(Q_ONE, dy1);
-    Q_TYPE sx1 = q_mul(dx1, inv_dy1);
-    Q_TYPE su1 = q_mul(du1, inv_dy1);
-    Q_TYPE sv1 = q_mul(dv1, inv_dy1);
-    Q_TYPE sw1 = q_mul(dw1, inv_dy1);
+    const Q_TYPE inv_dy20 = q_div(Q_ONE, dy20);
+    const Q_TYPE sx20 = q_mul(dx20, inv_dy20);
+    const Q_TYPE su20 = q_mul(du20, inv_dy20);
+    const Q_TYPE sv20 = q_mul(dv20, inv_dy20);
+    const Q_TYPE sw20 = q_mul(dw20, inv_dy20);
 
-    Q_TYPE dx2 = Q_FROM_INT(v2.x - v0.x);
-    Q_TYPE dy2 = Q_FROM_INT(v2.y - v0.y);
-    Q_TYPE du2 = q_sub(v2.tex_coord.u, v0.tex_coord.u);
-    Q_TYPE dv2 = q_sub(v2.tex_coord.v, v0.tex_coord.v);
-    Q_TYPE dw2 = q_sub(v2.inv_depth, v0.inv_depth);
-
-    Q_TYPE inv_dy2 = q_div(Q_ONE, dy2);
-    Q_TYPE sx2 = q_mul(dx2, inv_dy2);
-    Q_TYPE su2 = q_mul(du2, inv_dy2);
-    Q_TYPE sv2 = q_mul(dv2, inv_dy2);
-    Q_TYPE sw2 = q_mul(dw2, inv_dy2);
-
-    Q_TYPE left_x = Q_FROM_INT(v0.x);
-    Q_TYPE left_u = v0.tex_coord.u;
-    Q_TYPE left_v = v0.tex_coord.v;
-    Q_TYPE left_w = v0.inv_depth;
-
-    Q_TYPE right_x = Q_FROM_INT(v0.x);
-    Q_TYPE right_u = v0.tex_coord.u;
-    Q_TYPE right_v = v0.tex_coord.v;
-    Q_TYPE right_w = v0.inv_depth;
-
-    Q_TYPE lx, rx;
-    Q_TYPE lu, ru;
-    Q_TYPE lv, rv;
-    Q_TYPE lw, rw;
-
-    if (q_lt(sx1, sx2))
+    if (vert1.y != vert0.y)
     {
-        lx = sx1; rx = sx2;
-        lu = su1; ru = su2;
-        lv = sv1; rv = sv2;
-        lw = sw1; rw = sw2;
-    }
-    else
-    {
-        lx = sx2; rx = sx1;
-        lu = su2; ru = su1;
-        lv = sv2; rv = sv1;
-        lw = sw2; rw = sw1;
-    }
+        const Q_TYPE dx10 = Q_FROM_INT(vert1.x - vert0.x);
+        const Q_TYPE dy10 = Q_FROM_INT(vert1.y - vert0.y);
+        const Q_TYPE du10 = q_sub(vert1.u, vert0.u);
+        const Q_TYPE dv10 = q_sub(vert1.v, vert0.v);
+        const Q_TYPE dw10 = q_sub(vert1.inv_depth, vert0.inv_depth);
 
-	for (int32_t y = v0.y; y < v1.y; ++y)
-    {
-        Q_TYPE t = Q_ZERO;
-		const Q_TYPE st = q_div(Q_ONE, q_sub(right_x, left_x));
+        const Q_TYPE inv_dy10 = q_div(Q_ONE, dy10);
+        const Q_TYPE sx10 = q_mul(dx10, inv_dy10);
+        const Q_TYPE su10 = q_mul(du10, inv_dy10);
+        const Q_TYPE sv10 = q_mul(dv10, inv_dy10);
+        const Q_TYPE sw10 = q_mul(dw10, inv_dy10);
 
-        const int32_t left = Q_TO_INT(left_x);
-        const int32_t right = Q_TO_INT(right_x);
+        Q_TYPE left_x = Q_FROM_INT(vert0.x);
+        Q_TYPE left_u = vert0.u;
+        Q_TYPE left_v = vert0.v;
+        Q_TYPE left_w = vert0.inv_depth;
 
-		for (int32_t x = left; x <= right; ++x) 
+        Q_TYPE right_x = Q_FROM_INT(vert0.x);
+        Q_TYPE right_u = vert0.u;
+        Q_TYPE right_v = vert0.v;
+        Q_TYPE right_w = vert0.inv_depth;
+    
+        Q_TYPE lx, rx;
+        Q_TYPE lu, ru;
+        Q_TYPE lv, rv;
+        Q_TYPE lw, rw;
+
+        if (q_lt(sx10, sx20))
         {
-            const Q_TYPE inv_w = q_div(Q_ONE, q_interp(right_w, left_w, t));
-            const depth_t depth = pgl_depth_map(inv_w);
-
-			if (pgl_depth_test_passed(x, y, depth)) 
-            {
-                const Q_VEC2 tex_coord = (Q_VEC2){{
-                    q_mul(q_interp(right_u, left_u, t), inv_w),
-                    q_mul(q_interp(right_v, left_v, t), inv_w),
-                }};
-                const colour_t colour = pgl_fragment_shader(tex_coord);
-                context.draw_image->colours[y][x]  = colour;
-                context.depths[y][x] = depth;
-			}
-			t += st;
-		}
-
-        left_x = q_add(left_x, lx);
-        left_u = q_add(left_u, lu);
-        left_v = q_add(left_v, lv);
-        left_w = q_add(left_w, lw);
-
-        right_x = q_add(right_x, rx);
-        right_u = q_add(right_u, ru);
-        right_v = q_add(right_v, rv);
-        right_w = q_add(right_w, rw);
-	}
-
-    dx1 = Q_FROM_INT(v2.x - v1.x);
-    dy1 = Q_FROM_INT(v2.y - v1.y);
-    du1 = q_sub(v2.tex_coord.u, v1.tex_coord.u);
-    dv1 = q_sub(v2.tex_coord.v, v1.tex_coord.v);
-    dw1 = q_sub(v2.inv_depth, v1.inv_depth);
-
-    inv_dy1 = q_div(Q_ONE, dy1);
-    sx1 = q_mul(dx1, inv_dy1);
-    su1 = q_mul(du1, inv_dy1);
-    sv1 = q_mul(dv1, inv_dy1);
-    sw1 = q_mul(dw1, inv_dy1);
-
-    if (q_gt(sx1, sx2))
-    {
-        lx = sx1; rx = sx2;
-        lu = su1; ru = su2;
-        lv = sv1; rv = sv2;
-        lw = sw1; rw = sw2;
-    }
-    else
-    {
-        lx = sx2; rx = sx1;
-        lu = su2; ru = su1;
-        lv = sv2; rv = sv1;
-        lw = sw2; rw = sw1;
-    }
-
-	for (int32_t y = v1.y; y <= v2.y; ++y)
-    {
-        Q_TYPE t = Q_ZERO;
-		const Q_TYPE st = q_div(Q_ONE, q_sub(right_x, left_x));
-
-        const int32_t left = Q_TO_INT(left_x);
-        const int32_t right = Q_TO_INT(right_x);
-
-		for (int32_t x = left; x <= right; ++x) 
+            lx = sx10; rx = sx20;
+            lu = su10; ru = su20;
+            lv = sv10; rv = sv20;
+            lw = sw10; rw = sw20;
+        }
+        else
         {
-            const Q_TYPE inv_w = q_div(Q_ONE, q_interp(right_w, left_w, t));
-            const depth_t depth = pgl_depth_map(inv_w);
+            lx = sx20; rx = sx10;
+            lu = su20; ru = su10;
+            lv = sv20; rv = sv10;
+            lw = sw20; rw = sw10;
+        }
 
-			if (pgl_depth_test_passed(x, y, depth)) 
-            {
-                const Q_VEC2 tex_coord = (Q_VEC2){{
-                    q_mul(q_interp(right_u, left_u, t), inv_w),
-                    q_mul(q_interp(right_v, left_v, t), inv_w),
-                }};
-                const colour_t colour = pgl_fragment_shader(tex_coord);
-                context.draw_image->colours[y][x]  = colour;
-                context.depths[y][x] = depth;
-			}
-			t += st;
-		}
+    	for (int32_t y = vert0.y; y < vert1.y; ++y)
+        {
+            pgl_rasterise_scanline(
+                left_x, right_x,
+                left_u, right_u,
+                left_v, right_v,
+                left_w, right_w,
+                y);
 
-        left_x = q_add(left_x, lx);
-        left_u = q_add(left_u, lu);
-        left_v = q_add(left_v, lv);
-        left_w = q_add(left_w, lw);
+            left_x = q_add(left_x, lx);
+            left_u = q_add(left_u, lu);
+            left_v = q_add(left_v, lv);
+            left_w = q_add(left_w, lw);
 
-        right_x = q_add(right_x, rx);
-        right_u = q_add(right_u, ru);
-        right_v = q_add(right_v, rv);
-        right_w = q_add(right_w, rw);
-	}
+            right_x = q_add(right_x, rx);
+            right_u = q_add(right_u, ru);
+            right_v = q_add(right_v, rv);
+            right_w = q_add(right_w, rw);
+    	}
+    }
+
+    if (vert2.y != vert1.y)
+    {
+        const Q_TYPE dx21 = Q_FROM_INT(vert2.x - vert1.x);
+        const Q_TYPE dy21 = Q_FROM_INT(vert2.y - vert1.y);
+        const Q_TYPE du21 = q_sub(vert2.u, vert1.u);
+        const Q_TYPE dv21 = q_sub(vert2.v, vert1.v);
+        const Q_TYPE dw21 = q_sub(vert2.inv_depth, vert1.inv_depth);
+
+        const Q_TYPE inv_dy21 = q_div(Q_ONE, dy21);
+        const Q_TYPE sx21 = q_mul(dx21, inv_dy21);
+        const Q_TYPE su21 = q_mul(du21, inv_dy21);
+        const Q_TYPE sv21 = q_mul(dv21, inv_dy21);
+        const Q_TYPE sw21 = q_mul(dw21, inv_dy21);
+
+        Q_TYPE left_x = Q_FROM_INT(vert2.x);
+        Q_TYPE left_u = vert2.u;
+        Q_TYPE left_v = vert2.v;
+        Q_TYPE left_w = vert2.inv_depth;
+
+        Q_TYPE right_x = Q_FROM_INT(vert2.x);
+        Q_TYPE right_u = vert2.u;
+        Q_TYPE right_v = vert2.v;
+        Q_TYPE right_w = vert2.inv_depth;
+
+        Q_TYPE lx, rx;
+        Q_TYPE lu, ru;
+        Q_TYPE lv, rv;
+        Q_TYPE lw, rw;
+
+        if (q_lt(sx20, sx21))
+        {
+            lx = sx21; rx = sx20;
+            lu = su21; ru = su20;
+            lv = sv21; rv = sv20;
+            lw = sw21; rw = sw20;
+        }
+        else
+        {
+            lx = sx20; rx = sx21;
+            lu = su20; ru = su21;
+            lv = sv20; rv = sv21;
+            lw = sw20; rw = sw21;
+        }
+
+    	for (int32_t y = vert2.y; y >= vert1.y; --y)
+        {
+            pgl_rasterise_scanline(
+                left_x, right_x,
+                left_u, right_u,
+                left_v, right_v,
+                left_w, right_w,
+                y);
+
+            left_x = q_sub(left_x, lx);
+            left_u = q_sub(left_u, lu);
+            left_v = q_sub(left_v, lv);
+            left_w = q_sub(left_w, lw);
+
+            right_x = q_sub(right_x, rx);
+            right_u = q_sub(right_u, ru);
+            right_v = q_sub(right_v, rv);
+            right_w = q_sub(right_w, rw);
+    	}
+    }
 }
 
 // ------------------------------------- CONTEXT ------------------------------------- //
@@ -504,9 +531,9 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
         {
             const pgl_clip_triangle_t* subtriangle = &clip_buffer[--triangle_count];
 
-            const Q_VEC4 ndc0 = q_homogeneous_point_normalise(subtriangle->v[0].position);
-            const Q_VEC4 ndc1 = q_homogeneous_point_normalise(subtriangle->v[1].position);
-            const Q_VEC4 ndc2 = q_homogeneous_point_normalise(subtriangle->v[2].position);
+            const Q_VEC4 ndc0 = q_homogeneous_point_normalise(subtriangle->verts[0].position);
+            const Q_VEC4 ndc1 = q_homogeneous_point_normalise(subtriangle->verts[1].position);
+            const Q_VEC4 ndc2 = q_homogeneous_point_normalise(subtriangle->verts[2].position);
 
             if (pgl_face_is_culled((Q_VEC2){{ndc0.x, ndc0.y}}, (Q_VEC2){{ndc1.x, ndc1.y}}, (Q_VEC2){{ndc2.x, ndc2.y}})) 
                 continue;
@@ -515,32 +542,35 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
             const Q_VEC4 sc1 = q_mat4_mul_vec4(context.viewport, ndc1);
             const Q_VEC4 sc2 = q_mat4_mul_vec4(context.viewport, ndc2);
 
-            const Q_TYPE inv_depth0 = q_div(Q_ONE, subtriangle->v[0].position.w);
-            const Q_TYPE inv_depth1 = q_div(Q_ONE, subtriangle->v[1].position.w);
-            const Q_TYPE inv_depth2 = q_div(Q_ONE, subtriangle->v[2].position.w);
+            const Q_TYPE inv_depth0 = q_div(Q_ONE, subtriangle->verts[0].position.w);
+            const Q_TYPE inv_depth1 = q_div(Q_ONE, subtriangle->verts[1].position.w);
+            const Q_TYPE inv_depth2 = q_div(Q_ONE, subtriangle->verts[2].position.w);
 
-            const pgl_rast_vertex_t rv0 = {
-                .x = Q_TO_INT(sc0.x),
-                .y = Q_TO_INT(sc0.y),
-                .tex_coord = q_vec2_scale(subtriangle->v[0].tex_coord, inv_depth0),
+            const pgl_rast_vertex_t rast_vert0 = {
+                .x = CLAMP(Q_TO_INT(sc0.x), 0, SCREEN_WIDTH  - 1),
+                .y = CLAMP(Q_TO_INT(sc0.y), 0, SCREEN_HEIGHT - 1),
+                .u = q_mul(subtriangle->verts[0].tex_coord.u, inv_depth0),
+                .v = q_mul(subtriangle->verts[0].tex_coord.v, inv_depth0),
                 .inv_depth = inv_depth0,
             };
 
-            const pgl_rast_vertex_t rv1 = {
-                .x = Q_TO_INT(sc1.x),
-                .y = Q_TO_INT(sc1.y),
-                .tex_coord = q_vec2_scale(subtriangle->v[1].tex_coord, inv_depth1),
+            const pgl_rast_vertex_t rast_vert1 = {
+                .x = CLAMP(Q_TO_INT(sc1.x), 0, SCREEN_WIDTH  - 1),
+                .y = CLAMP(Q_TO_INT(sc1.y), 0, SCREEN_HEIGHT - 1),
+                .u = q_mul(subtriangle->verts[1].tex_coord.u, inv_depth1),
+                .v = q_mul(subtriangle->verts[1].tex_coord.v, inv_depth1),
                 .inv_depth = inv_depth1,
             };
 
-            const pgl_rast_vertex_t rv2 = {
-                .x = Q_TO_INT(sc2.x),
-                .y = Q_TO_INT(sc2.y),
-                .tex_coord = q_vec2_scale(subtriangle->v[2].tex_coord, inv_depth2),
+            const pgl_rast_vertex_t rast_vert2 = {
+                .x = CLAMP(Q_TO_INT(sc2.x), 0, SCREEN_WIDTH  - 1),
+                .y = CLAMP(Q_TO_INT(sc2.y), 0, SCREEN_HEIGHT - 1),
+                .u = q_mul(subtriangle->verts[2].tex_coord.u, inv_depth2),
+                .v = q_mul(subtriangle->verts[2].tex_coord.v, inv_depth2),
                 .inv_depth = inv_depth2,
             };
 
-            pgl_draw_filled_triangle(rv0, rv1, rv2);
+            pgl_rasterise_filled_triangle(rast_vert0, rast_vert1, rast_vert2);
         }
     }
 }
