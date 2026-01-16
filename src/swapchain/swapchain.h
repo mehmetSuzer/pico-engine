@@ -4,7 +4,6 @@
 
 #include <stddef.h>
 #include <stdbool.h>
-#include "common/depth.h"
 #include "colour/colour.h"
 
 #ifndef SCREEN_HEIGHT
@@ -21,14 +20,11 @@
 
 typedef struct
 {
-    colour_t colours[SCREEN_HEIGHT][SCREEN_WIDTH] __attribute__((aligned(4)));
-    depth_t   depths[SCREEN_HEIGHT][SCREEN_WIDTH] __attribute__((aligned(4)));
-} framebuffer_t;
+    colour_t colours[SCREEN_HEIGHT][SCREEN_WIDTH];
+} swapchain_image_t;
 
-framebuffer_t* swapchain_acquire_draw_image();
-const framebuffer_t* swapchain_acquire_display_image();
-
-void swapchain_request_swap();
-void swapchain_swap_buffers();
+swapchain_image_t* swapchain_request_draw_image();
+const swapchain_image_t* swapchain_request_display_image();
+void swapchain_swap_images();
 
 #endif // PICO_ENGINE_SWAPCHAIN_SWAPCHAIN_H

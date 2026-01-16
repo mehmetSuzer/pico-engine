@@ -158,7 +158,7 @@ int main()
 
         // --------------------------------------------------------------------------------------------- //
 
-        if (pgl_request_frame())
+        if (pgl_request_draw_image())
         {
             const uint32_t dt_frame_us = curr_time_us - prev_frame_time_us;
             prev_frame_time_us = curr_time_us;
@@ -172,7 +172,7 @@ int main()
             const uint32_t dt = end - start;
             printf("dt: %lu us\n", dt);
 
-            swapchain_request_swap();
+            swapchain_swap_images();
         }
     }
 

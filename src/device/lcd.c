@@ -218,8 +218,8 @@ void lcd_start_transfer()
     spi_set_format(SPI_PORT, 16, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
 #endif
 
-    const framebuffer_t* framebuffer = swapchain_acquire_display_image();
-    dma_channel_set_read_addr(lcd_dma_chan, (const colour_t*)framebuffer->colours, false);
+    const swapchain_image_t* display_image = swapchain_request_display_image();
+    dma_channel_set_read_addr(lcd_dma_chan, (const colour_t*)display_image->colours, false);
     dma_channel_set_transfer_count(lcd_dma_chan, SCREEN_WIDTH * SCREEN_HEIGHT, true);
 }
 
@@ -237,10 +237,7 @@ static void __isr lcd_dma_irq_handler()
     // switch to 8-bit mode for command transfer
     spi_set_format(SPI_PORT, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
 #endif
-    lcd_command(0x29);
-    
-    swapchain_swap_buffers();
-    
+    lcd_command(0x29);    
     lcd_start_transfer();
 }
 

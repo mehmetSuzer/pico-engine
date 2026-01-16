@@ -35,7 +35,8 @@ typedef struct
 
 typedef struct
 {
-    framebuffer_t* framebuffer;
+    depth_t depths[SCREEN_HEIGHT][SCREEN_WIDTH];
+    swapchain_image_t* draw_image;
 
     Q_MAT4 model;
     Q_MAT4 view;
@@ -50,7 +51,8 @@ typedef struct
 } pgl_context_t;
 
 static pgl_context_t context = {
-    .framebuffer = NULL,
+    .depths = {{DEPTH_FURTHEST}},
+    .draw_image = NULL,
 
     .model      = Q_MAT4_ZERO,
     .view       = Q_MAT4_ZERO,
@@ -73,10 +75,16 @@ static void pgl_clip_poly_plane(
 {
     out->count = 0;
 
-    for (uint32_t i = 0; i < in->count; ++i)
+    uint32_t curr_index = 0;
+    uint32_t prev_index = in->count - 1;
+
+    while (curr_index < in->count)
     {
-        const pgl_clip_vertex_t* curr = &in->v[i];
-        const pgl_clip_vertex_t* prev = &in->v[(i + in->count - 1) % in->count];
+        const pgl_clip_vertex_t* curr = &in->v[curr_index];
+        const pgl_clip_vertex_t* prev = &in->v[prev_index];
+
+        prev_index = curr_index;
+        curr_index++;
 
         const Q_TYPE curr_dot = q_vec4_dot(curr->position, plane->normal);
         const Q_TYPE prev_dot = q_vec4_dot(prev->position, plane->normal);
@@ -84,7 +92,7 @@ static void pgl_clip_poly_plane(
         const bool curr_inside = q_gt(curr_dot, Q_ZERO);
         const bool prev_inside = q_gt(prev_dot, Q_ZERO);
 
-        if (curr_inside ^ prev_inside)
+        if (curr_inside != prev_inside)
         {
             const Q_TYPE t  = q_div(curr_dot, q_sub(curr_dot, prev_dot));
             out->v[out->count++] = (pgl_clip_vertex_t){
@@ -92,6 +100,7 @@ static void pgl_clip_poly_plane(
                 .tex_coord = q_vec2_interp(prev->tex_coord, curr->tex_coord, t),
             };
         }
+        
         if (curr_inside)
             out->v[out->count++] = *curr;
     }
@@ -148,7 +157,7 @@ static inline depth_t pgl_depth_map(Q_TYPE q_depth)
 static inline bool pgl_depth_test_passed(int32_t x, int32_t y, depth_t depth)
 {
     // Depth Test -> LESS
-    const depth_t depth_in_buffer = context.framebuffer->depths[y][x];
+    const depth_t depth_in_buffer = context.depths[y][x];
     return (depth < depth_in_buffer);
 }
 
@@ -218,140 +227,159 @@ static void pgl_draw_filled_triangle(pgl_rast_vertex_t v0, pgl_rast_vertex_t v1,
     if (v1.y > v2.y) SWAP(&v1, &v2);
     if (v0.y > v1.y) SWAP(&v0, &v1);
 
-    int32_t dx1 = v1.x - v0.x;
-    int32_t dy1 = v1.y - v0.y;
-    int32_t dx2 = v2.x - v0.x;
-    int32_t dy2 = v2.y - v0.y;
-
+    Q_TYPE dx1 = Q_FROM_INT(v1.x - v0.x);
+    Q_TYPE dy1 = Q_FROM_INT(v1.y - v0.y);
     Q_TYPE du1 = q_sub(v1.tex_coord.u, v0.tex_coord.u);
     Q_TYPE dv1 = q_sub(v1.tex_coord.v, v0.tex_coord.v);
+    Q_TYPE dw1 = q_sub(v1.inv_depth, v0.inv_depth);
+
+    Q_TYPE inv_dy1 = q_div(Q_ONE, dy1);
+    Q_TYPE sx1 = q_mul(dx1, inv_dy1);
+    Q_TYPE su1 = q_mul(du1, inv_dy1);
+    Q_TYPE sv1 = q_mul(dv1, inv_dy1);
+    Q_TYPE sw1 = q_mul(dw1, inv_dy1);
+
+    Q_TYPE dx2 = Q_FROM_INT(v2.x - v0.x);
+    Q_TYPE dy2 = Q_FROM_INT(v2.y - v0.y);
     Q_TYPE du2 = q_sub(v2.tex_coord.u, v0.tex_coord.u);
     Q_TYPE dv2 = q_sub(v2.tex_coord.v, v0.tex_coord.v);
-    
-    Q_TYPE dw1 = q_sub(v1.inv_depth, v0.inv_depth);
     Q_TYPE dw2 = q_sub(v2.inv_depth, v0.inv_depth);
 
-    Q_TYPE inv_abs_dy1 = q_div(Q_ONE, Q_FROM_INT(ABS(dy1)));
-    Q_TYPE inv_abs_dy2 = q_div(Q_ONE, Q_FROM_INT(ABS(dy2)));
-    
-    Q_TYPE sx1 = (dy1 != 0) ? q_mul(Q_FROM_INT(dx1), inv_abs_dy1) : Q_ZERO;
-    Q_TYPE su1 = (dy1 != 0) ? q_mul(du1,             inv_abs_dy1) : Q_ZERO;
-    Q_TYPE sv1 = (dy1 != 0) ? q_mul(dv1,             inv_abs_dy1) : Q_ZERO;
-    Q_TYPE sw1 = (dy1 != 0) ? q_mul(dw1,             inv_abs_dy1) : Q_ZERO;
+    Q_TYPE inv_dy2 = q_div(Q_ONE, dy2);
+    Q_TYPE sx2 = q_mul(dx2, inv_dy2);
+    Q_TYPE su2 = q_mul(du2, inv_dy2);
+    Q_TYPE sv2 = q_mul(dv2, inv_dy2);
+    Q_TYPE sw2 = q_mul(dw2, inv_dy2);
 
-    Q_TYPE sx2 = (dy2 != 0) ? q_mul(Q_FROM_INT(dx2), inv_abs_dy2) : Q_ZERO;
-    Q_TYPE su2 = (dy2 != 0) ? q_mul(du2,             inv_abs_dy2) : Q_ZERO;
-    Q_TYPE sv2 = (dy2 != 0) ? q_mul(dv2,             inv_abs_dy2) : Q_ZERO;
-    Q_TYPE sw2 = (dy2 != 0) ? q_mul(dw2,             inv_abs_dy2) : Q_ZERO;
+    Q_TYPE left_x = Q_FROM_INT(v0.x);
+    Q_TYPE left_u = v0.tex_coord.u;
+    Q_TYPE left_v = v0.tex_coord.v;
+    Q_TYPE left_w = v0.inv_depth;
 
-	if (dy1 != 0) 
+    Q_TYPE right_x = Q_FROM_INT(v0.x);
+    Q_TYPE right_u = v0.tex_coord.u;
+    Q_TYPE right_v = v0.tex_coord.v;
+    Q_TYPE right_w = v0.inv_depth;
+
+    Q_TYPE lx, rx;
+    Q_TYPE lu, ru;
+    Q_TYPE lv, rv;
+    Q_TYPE lw, rw;
+
+    if (q_lt(sx1, sx2))
     {
-		for (int32_t y = v0.y; y <= v1.y; ++y) 
+        lx = sx1; rx = sx2;
+        lu = su1; ru = su2;
+        lv = sv1; rv = sv2;
+        lw = sw1; rw = sw2;
+    }
+    else
+    {
+        lx = sx2; rx = sx1;
+        lu = su2; ru = su1;
+        lv = sv2; rv = sv1;
+        lw = sw2; rw = sw1;
+    }
+
+	for (int32_t y = v0.y; y < v1.y; ++y)
+    {
+        Q_TYPE t = Q_ZERO;
+		const Q_TYPE st = q_div(Q_ONE, q_sub(right_x, left_x));
+
+        const int32_t left = Q_TO_INT(left_x);
+        const int32_t right = Q_TO_INT(right_x);
+
+		for (int32_t x = left; x <= right; ++x) 
         {
-            const Q_TYPE y0_diff = Q_FROM_INT(y - v0.y);
+            const Q_TYPE inv_w = q_div(Q_ONE, q_interp(right_w, left_w, t));
+            const depth_t depth = pgl_depth_map(inv_w);
 
-            int32_t start_x = v0.x + Q_TO_INT(q_mul(y0_diff, sx1));
-            Q_TYPE  start_u = q_add(v0.tex_coord.u, q_mul(y0_diff, su1));
-            Q_TYPE  start_v = q_add(v0.tex_coord.v, q_mul(y0_diff, sv1));
-            Q_TYPE  start_w = q_add(v0.inv_depth, q_mul(y0_diff, sw1));
-
-            int32_t end_x = v0.x + Q_TO_INT(q_mul(y0_diff, sx2));
-            Q_TYPE  end_u = q_add(v0.tex_coord.u, q_mul(y0_diff, su2));
-            Q_TYPE  end_v = q_add(v0.tex_coord.v, q_mul(y0_diff, sv2));
-            Q_TYPE  end_w = q_add(v0.inv_depth, q_mul(y0_diff, sw2));
-
-            if (start_x > end_x) 
+			if (pgl_depth_test_passed(x, y, depth)) 
             {
-				SWAP(&start_x, &end_x);
-				SWAP(&start_u, &end_u);
-                SWAP(&start_v, &end_v);
-                SWAP(&start_w, &end_w);
+                const Q_VEC2 tex_coord = (Q_VEC2){{
+                    q_mul(q_interp(right_u, left_u, t), inv_w),
+                    q_mul(q_interp(right_v, left_v, t), inv_w),
+                }};
+                const colour_t colour = pgl_fragment_shader(tex_coord);
+                context.draw_image->colours[y][x]  = colour;
+                context.depths[y][x] = depth;
 			}
-
-            Q_TYPE a = Q_ZERO;
-			const Q_TYPE sa = q_div(Q_ONE, Q_FROM_INT(end_x - start_x));
-
-			for (int32_t x = start_x; x <= end_x; ++x) 
-            {
-                const Q_TYPE inv_w = q_div(Q_ONE, q_interp(end_w, start_w, a));
-                const depth_t depth = pgl_depth_map(inv_w);
-
-				if (pgl_depth_test_passed(x, y, depth)) 
-                {
-                    const Q_VEC2 tex_coord = (Q_VEC2){{
-                        q_mul(q_interp(end_u, start_u, a), inv_w),
-                        q_mul(q_interp(end_v, start_v, a), inv_w),
-                    }};
-                    const colour_t colour = pgl_fragment_shader(tex_coord);
-                    context.framebuffer->colours[y][x] = colour;
-                    context.framebuffer->depths [y][x] = depth;
-				}
-				a += sa;
-			}
+			t += st;
 		}
+
+        left_x = q_add(left_x, lx);
+        left_u = q_add(left_u, lu);
+        left_v = q_add(left_v, lv);
+        left_w = q_add(left_w, lw);
+
+        right_x = q_add(right_x, rx);
+        right_u = q_add(right_u, ru);
+        right_v = q_add(right_v, rv);
+        right_w = q_add(right_w, rw);
 	}
 
-    dx1 = v2.x - v1.x;
-    dy1 = v2.y - v1.y;
-
+    dx1 = Q_FROM_INT(v2.x - v1.x);
+    dy1 = Q_FROM_INT(v2.y - v1.y);
     du1 = q_sub(v2.tex_coord.u, v1.tex_coord.u);
     dv1 = q_sub(v2.tex_coord.v, v1.tex_coord.v);
-    
     dw1 = q_sub(v2.inv_depth, v1.inv_depth);
 
-    inv_abs_dy1 = q_div(Q_ONE, Q_FROM_INT(ABS(dy1)));
-    
-    sx1 = (dy1 != 0) ? q_mul(Q_FROM_INT(dx1), inv_abs_dy1) : Q_ZERO;
-    su1 = (dy1 != 0) ? q_mul(du1,             inv_abs_dy1) : Q_ZERO;
-    sv1 = (dy1 != 0) ? q_mul(dv1,             inv_abs_dy1) : Q_ZERO;
-    sw1 = (dy1 != 0) ? q_mul(dw1,             inv_abs_dy1) : Q_ZERO;
+    inv_dy1 = q_div(Q_ONE, dy1);
+    sx1 = q_mul(dx1, inv_dy1);
+    su1 = q_mul(du1, inv_dy1);
+    sv1 = q_mul(dv1, inv_dy1);
+    sw1 = q_mul(dw1, inv_dy1);
 
-	if (dy1 != 0) 
+    if (q_gt(sx1, sx2))
     {
-		for (int32_t y = v1.y; y <= v2.y; ++y) 
+        lx = sx1; rx = sx2;
+        lu = su1; ru = su2;
+        lv = sv1; rv = sv2;
+        lw = sw1; rw = sw2;
+    }
+    else
+    {
+        lx = sx2; rx = sx1;
+        lu = su2; ru = su1;
+        lv = sv2; rv = sv1;
+        lw = sw2; rw = sw1;
+    }
+
+	for (int32_t y = v1.y; y <= v2.y; ++y)
+    {
+        Q_TYPE t = Q_ZERO;
+		const Q_TYPE st = q_div(Q_ONE, q_sub(right_x, left_x));
+
+        const int32_t left = Q_TO_INT(left_x);
+        const int32_t right = Q_TO_INT(right_x);
+
+		for (int32_t x = left; x <= right; ++x) 
         {
-            const Q_TYPE y0_diff = Q_FROM_INT(y - v0.y);
-            const Q_TYPE y1_diff = Q_FROM_INT(y - v1.y);
+            const Q_TYPE inv_w = q_div(Q_ONE, q_interp(right_w, left_w, t));
+            const depth_t depth = pgl_depth_map(inv_w);
 
-            int32_t start_x = v1.x + Q_TO_INT(q_mul(y1_diff, sx1));
-            Q_TYPE  start_u = q_add(v1.tex_coord.u, q_mul(y1_diff, su1));
-            Q_TYPE  start_v = q_add(v1.tex_coord.v, q_mul(y1_diff, sv1));
-            Q_TYPE  start_w = q_add(v1.inv_depth, q_mul(y1_diff, sw1));
-
-            int32_t end_x = v0.x + Q_TO_INT(q_mul(y0_diff, sx2));
-            Q_TYPE  end_u = q_add(v0.tex_coord.u, q_mul(y0_diff, su2));
-            Q_TYPE  end_v = q_add(v0.tex_coord.v, q_mul(y0_diff, sv2));
-            Q_TYPE  end_w = q_add(v0.inv_depth, q_mul(y0_diff, sw2));
-
-            if (start_x > end_x) 
+			if (pgl_depth_test_passed(x, y, depth)) 
             {
-				SWAP(&start_x, &end_x);
-				SWAP(&start_u, &end_u);
-                SWAP(&start_v, &end_v);
-                SWAP(&start_w, &end_w);
+                const Q_VEC2 tex_coord = (Q_VEC2){{
+                    q_mul(q_interp(right_u, left_u, t), inv_w),
+                    q_mul(q_interp(right_v, left_v, t), inv_w),
+                }};
+                const colour_t colour = pgl_fragment_shader(tex_coord);
+                context.draw_image->colours[y][x]  = colour;
+                context.depths[y][x] = depth;
 			}
-
-            Q_TYPE a = Q_ZERO;
-			const Q_TYPE sa = q_div(Q_ONE, Q_FROM_INT(end_x - start_x));
-
-			for (int32_t x = start_x; x <= end_x; ++x) 
-            {
-                const Q_TYPE inv_w = q_div(Q_ONE, q_interp(end_w, start_w, a));
-                const depth_t depth = pgl_depth_map(inv_w);
-
-				if (pgl_depth_test_passed(x, y, depth)) 
-                {
-                    const Q_VEC2 tex_coord = (Q_VEC2){{
-                        q_mul(q_interp(end_u, start_u, a), inv_w),
-                        q_mul(q_interp(end_v, start_v, a), inv_w),
-                    }};
-                    const colour_t colour = pgl_fragment_shader(tex_coord);
-                    context.framebuffer->colours[y][x] = colour;
-                    context.framebuffer->depths [y][x] = depth;
-				}
-				a += sa;
-			}
+			t += st;
 		}
+
+        left_x = q_add(left_x, lx);
+        left_u = q_add(left_u, lu);
+        left_v = q_add(left_v, lv);
+        left_w = q_add(left_w, lw);
+
+        right_x = q_add(right_x, rx);
+        right_u = q_add(right_u, ru);
+        right_v = q_add(right_v, rv);
+        right_w = q_add(right_w, rw);
 	}
 }
 
@@ -406,9 +434,9 @@ void pgl_clear(pgl_framebuffer_bit_t bits)
         const uint32_t value = (colour << 16) | colour;
         const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 2;
     #endif
-        uint32_t* buffer = (uint32_t*)context.framebuffer->colours;
+        uint32_t* buffer = (uint32_t*)context.draw_image->colours;
 
-        #pragma GCC unroll 32
+        #pragma GCC unroll 16
         for (uint32_t i = 0; i < count; ++i)
             buffer[i] = value;
     }
@@ -423,18 +451,18 @@ void pgl_clear(pgl_framebuffer_bit_t bits)
         const uint32_t value = (depth << 16) | depth;
         const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 2;
     #endif
-        uint32_t* buffer = (uint32_t*)context.framebuffer->depths;
+        uint32_t* buffer = (uint32_t*)context.depths;
 
-        #pragma GCC unroll 32
+        #pragma GCC unroll 16
         for (uint32_t i = 0; i < count; ++i)
             buffer[i] = value;
     }
 }
 
-bool pgl_request_frame()
+bool pgl_request_draw_image()
 {
-    context.framebuffer = swapchain_acquire_draw_image();
-    return (context.framebuffer != NULL);
+    context.draw_image = swapchain_request_draw_image();
+    return (context.draw_image != NULL);
 }
 
 void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits)

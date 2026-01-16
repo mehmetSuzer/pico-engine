@@ -1,52 +1,38 @@
 
 #include "swapchain.h"
 
-#define SWAPCHAIN_BUFFER_COUNT 2
-#define SWAPCHAIN_BUFFER_MASK  (SWAPCHAIN_BUFFER_COUNT - 1)
+#define SWAPCHAIN_IMAGE_COUNT 2
 
 typedef struct
 {
-    framebuffer_t buffers[SWAPCHAIN_BUFFER_COUNT];
+    swapchain_image_t images[SWAPCHAIN_IMAGE_COUNT];
     uint32_t draw_index;
-    volatile bool draw_buffer_available;
-    volatile bool swap_requested;
+    uint32_t display_index;
 } swapchain_t;
 
 static swapchain_t swapchain = {
-    .buffers = {{
+    .images = {{
         .colours = {{COLOUR_BLACK}},
-        .depths = {{DEPTH_FURTHEST}},
     }},
-    .draw_index = 0,
-    .draw_buffer_available = true,
-    .swap_requested = false,
+    .draw_index = 1,
+    .display_index = 0,
 };
 
-framebuffer_t* swapchain_acquire_draw_image()
+swapchain_image_t* swapchain_request_draw_image()
 {
-    if (!swapchain.draw_buffer_available)
-        return NULL;
-
-    swapchain.draw_buffer_available = false;
-    return (framebuffer_t*)&swapchain.buffers[swapchain.draw_index];
+    return (swapchain.draw_index != swapchain.display_index) ? &swapchain.images[swapchain.draw_index] : NULL;
 }
 
-const framebuffer_t* swapchain_acquire_display_image()
+const swapchain_image_t* swapchain_request_display_image()
 {
-    const uint32_t display_index = (swapchain.draw_index + 1) & SWAPCHAIN_BUFFER_MASK;
-    return (const framebuffer_t*)&swapchain.buffers[display_index];
+    const uint32_t next_index = (swapchain.display_index + 1) % SWAPCHAIN_IMAGE_COUNT;
+    if (next_index != swapchain.draw_index)
+        swapchain.display_index = next_index;
+    return &swapchain.images[swapchain.display_index];
 }
 
-void swapchain_request_swap()
+void swapchain_swap_images()
 {
-    swapchain.swap_requested = true;
+    swapchain.draw_index = (swapchain.draw_index + 1) % SWAPCHAIN_IMAGE_COUNT;
 }
-
-void swapchain_swap_buffers()
-{
-    if (!swapchain.swap_requested) return;
-    swapchain.draw_index = (swapchain.draw_index + 1) & SWAPCHAIN_BUFFER_MASK;
-    swapchain.swap_requested = false;
-    swapchain.draw_buffer_available = true;
-}
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
