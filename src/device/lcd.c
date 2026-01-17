@@ -3,26 +3,70 @@
 #include "swapchain/swapchain.h"
 
 #include <pico/stdlib.h>
+#include <hardware/pwm.h>
 #include <hardware/spi.h>
 #include <hardware/dma.h>
-#include <hardware/pwm.h>
 
 #if defined(CLOCK_FREQUENCY_KHZ)
-    #define SPI_BAUDRATE_HZ (CLOCK_FREQUENCY_KHZ * 250)
+    #define SPI_BAUDRATE_HZ (CLOCK_FREQUENCY_KHZ * 250u)
 #else
-    #define SPI_BAUDRATE_HZ 62500000
+    #define SPI_BAUDRATE_HZ 62500000u
 #endif
 
 #define SPI_PORT spi1
 
-#define LCD_RST_PIN    12u
-#define LCD_DC_PIN      8u
-#define LCD_BL_PIN     13u
-#define LCD_CS_PIN      9u
-#define LCD_CLK_PIN    10u
-#define LCD_MOSI_PIN   11u
-#define LCD_SCL_PIN     7u
-#define LCD_SDA_PIN     6u
+#define LCD_RST_PIN      12u
+#define LCD_DC_PIN        8u
+#define LCD_BL_PIN       13u
+#define LCD_CS_PIN        9u
+#define LCD_CLK_PIN      10u
+#define LCD_MOSI_PIN     11u
+
+#define LCD_BL_MAX      100u
+#define LCD_BL_DEFAULT   40u
+
+// MADCTL (Memory Access Control) bits
+#define MADCTL_MY  0x80u // Row address order
+#define MADCTL_MX  0x40u // Column address order
+#define MADCTL_MV  0x20u // Row/Column exchange
+#define MADCTL_ML  0x10u // Vertical refresh order
+#define MADCTL_RGB 0x00u // RGB order
+#define MADCTL_BGR 0x08u // BGR order
+#define MADCTL_MH  0x04u // Horizontal refresh order
+
+#define LCD_CMD_MADCTL      0x36u
+#define LCD_CMD_COLMOD      0x3Au
+#define LCD_CMD_PORCTRL     0xB2u
+#define LCD_CMD_GCTRL       0xB7u
+#define LCD_CMD_VCOMS       0xBBu
+#define LCD_CMD_LCMCTRL     0xC0u
+#define LCD_CMD_VDVVRHEN    0xC2u
+#define LCD_CMD_VRHSET      0xC3u
+#define LCD_CMD_VDVSET      0xC4u
+#define LCD_CMD_FRCTRL      0xC6u
+#define LCD_CMD_PWCTRL1     0xD0u
+#define LCD_CMD_PVGAMCTRL   0xE0u
+#define LCD_CMD_NVGAMCTRL   0xE1u
+#define LCD_CMD_INVON       0x21u
+#define LCD_CMD_SLPOUT      0x11u
+#define LCD_CMD_DISPON      0x29u
+
+#define LCD_GATE_CTRL       0x35u
+#define LCD_VCOM            0x19u
+#define LCD_LCM_CTRL        0x2Cu
+#define LCD_VDV_VRH_EN      0x01u
+#define LCD_VRH             0x12u
+#define LCD_VDV             0x20u
+#define LCD_FRATE           0x0Fu
+
+#define LCD_COLOUR_RGB332   0x02u
+#define LCD_COLOUR_RGB444   0x03u
+#define LCD_COLOUR_RGB565   0x05u
+#define LCD_COLOUR_RGB666   0x06u
+
+#define LCD_CMD_CASET       0x2Au // Column Address Set
+#define LCD_CMD_RASET       0x2Bu // Row Address Set
+#define LCD_CMD_RAMWR       0x2Cu // Memory Write
 
 static int lcd_dma_chan = -1;
 static dma_channel_config lcd_dma_cfg;
@@ -37,8 +81,6 @@ static void lcd_set_pins()
 {
     lcd_gpio_set(LCD_RST_PIN, GPIO_OUT);
     lcd_gpio_set(LCD_DC_PIN,  GPIO_OUT);
-    lcd_gpio_set(LCD_CS_PIN,  GPIO_OUT);
-    lcd_gpio_set(LCD_BL_PIN,  GPIO_OUT);
     lcd_gpio_set(LCD_CS_PIN,  GPIO_OUT);
     lcd_gpio_set(LCD_BL_PIN,  GPIO_OUT);
 
@@ -57,165 +99,165 @@ static void lcd_reset()
     sleep_ms(100);
 }
 
+static void lcd_set_pwm() 
+{
+    const uint slice_num = pwm_gpio_to_slice_num(LCD_BL_PIN);
+    const uint channel = pwm_gpio_to_channel(LCD_BL_PIN);
+
+    gpio_set_function(LCD_BL_PIN, GPIO_FUNC_PWM);
+    pwm_set_wrap(slice_num, LCD_BL_MAX);
+    pwm_set_chan_level(slice_num, channel, LCD_BL_DEFAULT); // brightness = level / wrap
+    pwm_set_clkdiv(slice_num, 50.0f);
+    pwm_set_enabled(slice_num, true);
+}
+
+static inline void lcd_spi_set_format(uint data_bits)
+{
+    // (SPI_CPOL_1, SPI_CPHA_1), where 0.5 clock cycles is wasted, 
+    // is faster than (SPI_CPOL_0, SPI_CPHA_0), where 1.5 clock cycles is wasted.
+    spi_set_format(SPI_PORT, data_bits, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+}
+
 static void lcd_set_spi() 
 {
     spi_init(SPI_PORT, SPI_BAUDRATE_HZ);
-    // (SPI_CPOL_1, SPI_CPHA_1), where 0.5 clock cycles is wasted, 
-    // is faster than (SPI_CPOL_0, SPI_CPHA_0), where 1.5 clock cycles is wasted.
-    // LCD expects 8-bit commands and data. Therefore, we initalise the SPI in 8-bit mode.
-    spi_set_format(SPI_PORT, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+    lcd_spi_set_format(8); // The LCD expects 8-bit commands and data
     gpio_set_function(LCD_CLK_PIN, GPIO_FUNC_SPI);
     gpio_set_function(LCD_MOSI_PIN, GPIO_FUNC_SPI);
+}
+
+static inline void lcd_select()
+{
+    gpio_put(LCD_CS_PIN, false);
+}
+
+static inline void lcd_unselect()
+{
+    gpio_put(LCD_CS_PIN, true);
 }
 
 static inline void lcd_command_mode()
 {
     gpio_put(LCD_DC_PIN, false);
-    gpio_put(LCD_CS_PIN, false);
 }
 
 static inline void lcd_data_mode()
 {
     gpio_put(LCD_DC_PIN, true);
-    gpio_put(LCD_CS_PIN, false);
-}
-
-static inline void lcd_signal_transfer_finish()
-{
-    gpio_put(LCD_CS_PIN, true);
 }
 
 static void lcd_command(uint8_t command) 
 {
     lcd_command_mode();
+    lcd_select();
     spi_write_blocking(SPI_PORT, &command, 1);
-    lcd_signal_transfer_finish();
+    lcd_unselect();
 }
 
-static void lcd_write_8bit_data(uint8_t data) 
+static void lcd_data_8bit(uint8_t data) 
 {
     lcd_data_mode();
+    lcd_select();
     spi_write_blocking(SPI_PORT, &data, 1);
-    lcd_signal_transfer_finish();
+    lcd_unselect();
 }
 
-static void lcd_set_pwm() 
+static void lcd_data_8bit_n(const uint8_t* data, size_t len)
 {
-    gpio_set_function(LCD_BL_PIN, GPIO_FUNC_PWM);
-    const uint slice_num = pwm_gpio_to_slice_num(LCD_BL_PIN);
-    pwm_set_wrap(slice_num, 100);
-    pwm_set_chan_level(slice_num, PWM_CHAN_B, 40); // level / wrap = 40 / 100 = 40 % brightness
-    pwm_set_clkdiv(slice_num, 50.0f);
-    pwm_set_enabled(slice_num, true);
+    lcd_data_mode();
+    lcd_select();
+    spi_write_blocking(SPI_PORT, data, len);
+    lcd_unselect();
 }
 
 static void lcd_configure()
 {
-    lcd_command(0x36);
-    lcd_write_8bit_data(0X70);
+    static const uint8_t LCD_PORCH[]     = {0x0Cu, 0x0Cu, 0x00u, 0x33u, 0x33u};
+    static const uint8_t LCD_PWRCTRL1[]  = {0xA4u, 0xA1u};
+    static const uint8_t LCD_GAMMA_POS[] = {0xD0u, 0x04u, 0x0Du, 0x11u, 0x13u, 0x2Bu, 0x3Fu,
+                                            0x54u, 0x4Cu, 0x18u, 0x0Du, 0x0Bu, 0x1Fu, 0x23u};
+    static const uint8_t LCD_GAMMA_NEG[] = {0xD0u, 0x04u, 0x0Cu, 0x11u, 0x13u, 0x2Cu, 0x3Fu,
+                                            0x44u, 0x51u, 0x2Fu, 0x1Fu, 0x1Fu, 0x20u, 0x23u};
+
+    lcd_command(LCD_CMD_MADCTL);
+    lcd_data_8bit(MADCTL_MX | MADCTL_MV | MADCTL_ML);
     
-    lcd_command(0x3A);
+    lcd_command(LCD_CMD_COLMOD);
 #if defined(RGB332)
-    lcd_write_8bit_data(0x02);
+    lcd_data_8bit(LCD_COLOUR_RGB332);
 #elif defined(RGB565)
-    lcd_write_8bit_data(0x05);
+    lcd_data_8bit(LCD_COLOUR_RGB565);
 #endif
 
-    lcd_command(0xB2);
-    lcd_write_8bit_data(0x0C);
-    lcd_write_8bit_data(0x0C);
-    lcd_write_8bit_data(0x00);
-    lcd_write_8bit_data(0x33);
-    lcd_write_8bit_data(0x33);
+    lcd_command(LCD_CMD_PORCTRL);
+    lcd_data_8bit_n(LCD_PORCH, count_of(LCD_PORCH));
 
-    lcd_command(0xB7);          // Gate Control
-    lcd_write_8bit_data(0x35);
+    lcd_command(LCD_CMD_GCTRL);
+    lcd_data_8bit(LCD_GATE_CTRL);
 
-    lcd_command(0xBB);          // VCOM Setting
-    lcd_write_8bit_data(0x19);
+    lcd_command(LCD_CMD_VCOMS);
+    lcd_data_8bit(LCD_VCOM);
 
-    lcd_command(0xC0);          // LCM Control     
-    lcd_write_8bit_data(0x2C);
+    lcd_command(LCD_CMD_LCMCTRL);
+    lcd_data_8bit(LCD_LCM_CTRL);
 
-    lcd_command(0xC2);          // VDV and VRH Command Enable
-    lcd_write_8bit_data(0x01);
+    lcd_command(LCD_CMD_VDVVRHEN);
+    lcd_data_8bit(LCD_VDV_VRH_EN);
 
-    lcd_command(0xC3);          // VRH Set
-    lcd_write_8bit_data(0x12);
+    lcd_command(LCD_CMD_VRHSET);
+    lcd_data_8bit(LCD_VRH);
     
-    lcd_command(0xC4);          // VDV Set
-    lcd_write_8bit_data(0x20);
+    lcd_command(LCD_CMD_VDVSET);
+    lcd_data_8bit(LCD_VDV);
 
-    lcd_command(0xC6);          // Frame Rate Control in Normal Mode
-    lcd_write_8bit_data(0x0F);
+    lcd_command(LCD_CMD_FRCTRL);
+    lcd_data_8bit(LCD_FRATE);
     
-    lcd_command(0xD0);          // Power Control 1
-    lcd_write_8bit_data(0xA4);
-    lcd_write_8bit_data(0xA1);
+    lcd_command(LCD_CMD_PWCTRL1);
+    lcd_data_8bit_n(LCD_PWRCTRL1, count_of(LCD_PWRCTRL1));
 
-    lcd_command(0xE0);          // Positive Voltage Gamma Control
-    lcd_write_8bit_data(0xD0);
-    lcd_write_8bit_data(0x04);
-    lcd_write_8bit_data(0x0D);
-    lcd_write_8bit_data(0x11);
-    lcd_write_8bit_data(0x13);
-    lcd_write_8bit_data(0x2B);
-    lcd_write_8bit_data(0x3F);
-    lcd_write_8bit_data(0x54);
-    lcd_write_8bit_data(0x4C);
-    lcd_write_8bit_data(0x18);
-    lcd_write_8bit_data(0x0D);
-    lcd_write_8bit_data(0x0B);
-    lcd_write_8bit_data(0x1F);
-    lcd_write_8bit_data(0x23);
+    lcd_command(LCD_CMD_PVGAMCTRL);
+    lcd_data_8bit_n(LCD_GAMMA_POS, count_of(LCD_GAMMA_POS));
 
-    lcd_command(0xE1);           // Negative Voltage Gamma Control
-    lcd_write_8bit_data(0xD0);
-    lcd_write_8bit_data(0x04);
-    lcd_write_8bit_data(0x0C);
-    lcd_write_8bit_data(0x11);
-    lcd_write_8bit_data(0x13);
-    lcd_write_8bit_data(0x2C);
-    lcd_write_8bit_data(0x3F);
-    lcd_write_8bit_data(0x44);
-    lcd_write_8bit_data(0x51);
-    lcd_write_8bit_data(0x2F);
-    lcd_write_8bit_data(0x1F);
-    lcd_write_8bit_data(0x1F);
-    lcd_write_8bit_data(0x20);
-    lcd_write_8bit_data(0x23);
+    lcd_command(LCD_CMD_NVGAMCTRL);
+    lcd_data_8bit_n(LCD_GAMMA_NEG, count_of(LCD_GAMMA_NEG));
 
-    lcd_command(0x21);          // Display Inversion On
-    lcd_command(0x11);          // Sleep Out
+    lcd_command(LCD_CMD_INVON);
+
+    lcd_command(LCD_CMD_SLPOUT);
     sleep_ms(120);
-    lcd_command(0x29);          // Display On
+
+    lcd_command(LCD_CMD_DISPON);
 }
 
 static void lcd_set_window(uint8_t start_x, uint8_t end_x, uint8_t start_y, uint8_t end_y) 
 {
-    lcd_command(0x2A);
-    lcd_write_8bit_data(0x00);
-    lcd_write_8bit_data(start_x);
-	lcd_write_8bit_data(0x00);
-    lcd_write_8bit_data(end_x - 1);
+    // Set column address (X)
+    lcd_command(LCD_CMD_CASET);
+    lcd_data_8bit(0x00u);       // High byte of start column
+    lcd_data_8bit(start_x);     // Low byte of start column
+    lcd_data_8bit(0x00u);       // High byte of end column
+    lcd_data_8bit(end_x - 1);   // Low byte of end column (inclusive)
 
-    lcd_command(0x2B);
-    lcd_write_8bit_data(0x00);
-	lcd_write_8bit_data(start_y);
-	lcd_write_8bit_data(0x00);
-    lcd_write_8bit_data(end_y - 1);
+    // Set row address (Y)
+    lcd_command(LCD_CMD_RASET);
+    lcd_data_8bit(0x00u);       // High byte of start row
+    lcd_data_8bit(start_y);     // Low byte of start row
+    lcd_data_8bit(0x00u);       // High byte of end row
+    lcd_data_8bit(end_y - 1);   // Low byte of end row (inclusive)
 
-    lcd_command(0x2C);
+    // Prepare to write memory
+    lcd_command(LCD_CMD_RAMWR);
 }
 
 void lcd_start_transfer() 
 {
     lcd_set_window(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT);
     lcd_data_mode();
+    lcd_select();
     
 #if defined(RGB565)
-    // Switch to 16-bit mode for pixel data transfer
-    spi_set_format(SPI_PORT, 16, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+    lcd_spi_set_format(16); // Switch to 16-bit mode for pixel data transfer
 #endif
 
     const swapchain_image_t* display_image = swapchain_request_display_image();
@@ -228,16 +270,20 @@ static void __isr lcd_dma_irq_handler()
     // Clear IRQ
     dma_hw->ints0 = 1u << lcd_dma_chan;
 
-    // Wait until SPI shifts last bit
+    // Wait until SPI shifts the last bit
     while (spi_is_busy(SPI_PORT)) { }
 
-    lcd_signal_transfer_finish();
+    // Signal the end of the pixel data transfer
+    lcd_unselect();
 
 #if defined(RGB565)
-    // switch to 8-bit mode for command transfer
-    spi_set_format(SPI_PORT, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+    lcd_spi_set_format(8); // Switch to 8-bit mode for command transfer
 #endif
-    lcd_command(0x29);    
+
+    // Display on the screen
+    lcd_command(LCD_CMD_DISPON);
+
+    // Start pixel data transfer again
     lcd_start_transfer();
 }
 
@@ -277,8 +323,8 @@ void lcd_init()
 {
     lcd_set_pins();
     lcd_reset();
-    lcd_set_spi();
     lcd_set_pwm();
+    lcd_set_spi();
     lcd_configure();
     lcd_set_dma();
 }

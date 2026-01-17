@@ -94,9 +94,6 @@ int main()
 
     pgl_viewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
-    pgl_clear_colour(COLOUR_BLACK);
-    pgl_clear_depth(DEPTH_FURTHEST);
-
     scene_t scene;
     scene_init(&scene, (camera_t){
         .transform = {{{Q_ZERO, Q_ZERO, Q_ZERO}}, Q_QUAT_IDENTITY, Q_VEC3_ONE},
@@ -166,7 +163,8 @@ int main()
             // printf("FPS: %lu - Delta Time: %lu us\n", fps, dt_frame_us);
 
             const uint32_t start = time_us_32();
-            pgl_clear(PGL_COLOUR_BUFFER_BIT | PGL_DEPTH_BUFFER_BIT);
+            pgl_clear_colours(COLOUR_BLACK);
+            pgl_clear_depths(DEPTH_FURTHEST);
             scene_draw(&scene);
             const uint32_t end = time_us_32();
             const uint32_t dt = end - start;

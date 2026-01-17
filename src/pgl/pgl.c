@@ -46,9 +46,6 @@ typedef struct
 
     Q_TYPE near;
     Q_TYPE far;
-    
-    colour_t clear_colour;
-    depth_t  clear_depth;
 } pgl_context_t;
 
 static pgl_context_t context = {
@@ -62,9 +59,6 @@ static pgl_context_t context = {
 
     .near = Q_ZERO,
     .far  = Q_MAX,
-
-    .clear_colour = COLOUR_BLACK,
-    .clear_depth  = DEPTH_FURTHEST,
 };
 
 // ------------------------------------- CLIP ------------------------------------- // 
@@ -439,51 +433,36 @@ void pgl_viewport(int32_t x, int32_t y, uint32_t width, uint32_t height)
     context.viewport = q_viewport(x, y, width, height);
 }
 
-void pgl_clear_colour(colour_t colour)
+void pgl_clear_colours(colour_t colour)
 {
-    context.clear_colour = colour;
+#if defined(RGB332)
+    const uint32_t value = (colour << 24) | (colour << 16) | (colour << 8) | colour;
+    const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 4;
+#elif defined(RGB565)
+    const uint32_t value = (colour << 16) | colour;
+    const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 2;
+#endif
+    uint32_t* buffer = (uint32_t*)context.draw_image->colours;
+
+    #pragma GCC unroll 16
+    for (uint32_t i = 0; i < count; ++i)
+        buffer[i] = value;
 }
 
-void pgl_clear_depth(depth_t depth)
+void pgl_clear_depths(depth_t depth)
 {
-    context.clear_depth = depth;
-}
+#if defined(DEPTH_8BIT)
+    const uint32_t value = (depth << 24) | (depth << 16) | (depth << 8) | depth;
+    const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 4;
+#elif defined(DEPTH_16BIT)
+    const uint32_t value = (depth << 16) | depth;
+    const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 2;
+#endif
+    uint32_t* buffer = (uint32_t*)context.depths;
 
-void pgl_clear(pgl_framebuffer_bit_t bits)
-{    
-    if (bits & PGL_COLOUR_BUFFER_BIT)
-    {
-        const colour_t colour = context.clear_colour;
-    #if defined(RGB332)
-        const uint32_t value = (colour << 24) | (colour << 16) | (colour << 8) | colour;
-        const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 4;
-    #elif defined(RGB565)
-        const uint32_t value = (colour << 16) | colour;
-        const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 2;
-    #endif
-        uint32_t* buffer = (uint32_t*)context.draw_image->colours;
-
-        #pragma GCC unroll 16
-        for (uint32_t i = 0; i < count; ++i)
-            buffer[i] = value;
-    }
-
-    if (bits & PGL_DEPTH_BUFFER_BIT)
-    {
-        const depth_t depth = context.clear_depth;
-    #if defined(DEPTH_8BIT)
-        const uint32_t value = (depth << 24) | (depth << 16) | (depth << 8) | depth;
-        const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 4;
-    #elif defined(DEPTH_16BIT)
-        const uint32_t value = (depth << 16) | depth;
-        const uint32_t count = (SCREEN_HEIGHT * SCREEN_WIDTH) / 2;
-    #endif
-        uint32_t* buffer = (uint32_t*)context.depths;
-
-        #pragma GCC unroll 16
-        for (uint32_t i = 0; i < count; ++i)
-            buffer[i] = value;
-    }
+    #pragma GCC unroll 16
+    for (uint32_t i = 0; i < count; ++i)
+        buffer[i] = value;
 }
 
 bool pgl_request_draw_image()
