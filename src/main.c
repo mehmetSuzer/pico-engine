@@ -12,14 +12,25 @@
 #define HEART_TEXTURE_HEIGHT_BITS 3
 
 const colour_t heart_texture[1 << HEART_TEXTURE_HEIGHT_BITS][1 << HEART_TEXTURE_WIDTH_BITS] = {
-    {0xFFFF, 0xFFFF, 0xFFFF, 0x0000, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF},
-    {0xFFFF, 0xFFFF, 0x0000, 0x3800, 0x3800, 0x0000, 0xFFFF, 0xFFFF},
-    {0xFFFF, 0x0000, 0x3800, 0xF800, 0x3800, 0xF800, 0x0000, 0xFFFF},
-    {0x0000, 0xF800, 0xF800, 0x3800, 0xF800, 0x3800, 0xF800, 0x0000},
-    {0x0000, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0x0000},
-    {0x0000, 0xFFFF, 0xF800, 0x0000, 0x0000, 0xFFFF, 0xF800, 0x0000},
-    {0xFFFF, 0x0000, 0x0000, 0xFFFF, 0xFFFF, 0x0000, 0x0000, 0xFFFF},
-    {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF},
+#if defined(RGB332)
+    {0xFFu, 0xFFu, 0xFFu, 0x00u, 0x00u, 0xFFu, 0xFFu, 0xFFu},
+    {0xFFu, 0xFFu, 0x00u, 0x40u, 0x40u, 0x00u, 0xFFu, 0xFFu},
+    {0xFFu, 0x00u, 0x40u, 0xE0u, 0x40u, 0xE0u, 0x00u, 0xFFu},
+    {0x00u, 0xE0u, 0xE0u, 0x40u, 0xE0u, 0x40u, 0xE0u, 0x00u},
+    {0x00u, 0xE0u, 0xE0u, 0xE0u, 0xE0u, 0xE0u, 0xE0u, 0x00u},
+    {0x00u, 0xFFu, 0xE0u, 0x00u, 0x00u, 0xFFu, 0xE0u, 0x00u},
+    {0xFFu, 0x00u, 0x00u, 0xFFu, 0xFFu, 0x00u, 0x00u, 0xFFu},
+    {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu},
+#elif defined(RGB565)
+    {0xFFFFu, 0xFFFFu, 0xFFFFu, 0x0000u, 0x0000u, 0xFFFFu, 0xFFFFu, 0xFFFFu},
+    {0xFFFFu, 0xFFFFu, 0x0000u, 0x3800u, 0x3800u, 0x0000u, 0xFFFFu, 0xFFFFu},
+    {0xFFFFu, 0x0000u, 0x3800u, 0xF800u, 0x3800u, 0xF800u, 0x0000u, 0xFFFFu},
+    {0x0000u, 0xF800u, 0xF800u, 0x3800u, 0xF800u, 0x3800u, 0xF800u, 0x0000u},
+    {0x0000u, 0xF800u, 0xF800u, 0xF800u, 0xF800u, 0xF800u, 0xF800u, 0x0000u},
+    {0x0000u, 0xFFFFu, 0xF800u, 0x0000u, 0x0000u, 0xFFFFu, 0xF800u, 0x0000u},
+    {0xFFFFu, 0x0000u, 0x0000u, 0xFFFFu, 0xFFFFu, 0x0000u, 0x0000u, 0xFFFFu},
+    {0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu},
+#endif
 };
 
 static void configure_clock() 
@@ -71,7 +82,7 @@ static void process_input(Q_VEC3* delta_position, Q_QUAT* delta_rotation)
             *delta_rotation = q_quat_mul_quat(*delta_rotation, q_quat_angle_axis(delta_angle, Q_VEC3_UP));
         else
             *delta_position = q_vec3_add(*delta_position, Q_VEC3_LEFT);
-        }
+    }
 
     if (input_key_pressed(INPUT_KEY_RIGHT))
     {
@@ -91,6 +102,7 @@ int main()
     configure_clock();
     input_init_buttons();
     lcd_init();
+    pgl_init();
 
     pgl_viewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
@@ -100,7 +112,7 @@ int main()
         .camera = {Q_FOURTHPI, Q_FROM_FLOAT(0.1f), Q_FROM_FLOAT(100.0f)},
     });
 
-    /*
+#if 0
     for (uint32_t i = 0; i < SCENE_MAX_MODEL_COUNT; ++i)
     {
         scene_add_model(&scene, (model_t){
@@ -112,8 +124,7 @@ int main()
             .mesh = cube_mesh,
         });
     }
-    */
-
+#else
     scene_add_model(&scene, (model_t){
         .transform = {
             {{Q_ZERO, Q_ZERO, Q_M_ONE}},
@@ -122,6 +133,7 @@ int main()
         },
         .mesh = cube_mesh,
     });
+#endif
 
     pgl_bind_texture((colour_t*)heart_texture, HEART_TEXTURE_WIDTH_BITS, HEART_TEXTURE_HEIGHT_BITS);
 
@@ -140,15 +152,16 @@ int main()
 
         while (lag_us >= PHYSICS_UPDATE_PERIOD_US)
         {
-            Q_VEC3 delta_position;
-            Q_QUAT delta_rotation;
-            process_input(&delta_position, &delta_rotation);
+            Q_VEC3 delta_local_position;
+            Q_QUAT delta_local_rotation;
+            process_input(&delta_local_position, &delta_local_rotation);
         
             Q_VEC3* position = &scene.camera.transform.position;
-            *position = q_vec3_add(delta_position, *position);
-        
             Q_QUAT* rotation = &scene.camera.transform.rotation;
-            *rotation = q_quat_mul_quat(delta_rotation, *rotation);
+
+            delta_local_position = q_quat_rotate_vec3(*rotation, delta_local_position);
+            *position = q_vec3_add(delta_local_position, *position);
+            *rotation = q_quat_mul_quat(delta_local_rotation, *rotation);
 
             lag_us -= PHYSICS_UPDATE_PERIOD_US;
         }

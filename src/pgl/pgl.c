@@ -1,11 +1,14 @@
 
-#include <stdio.h>
 #include "pgl.h"
+#include <pico/multicore.h>
 
 // ------------------------------------- TYPES ------------------------------------- //
 
 #define CLIP_POLY_MAX_VERTEX    8
 #define CLIP_BUFFER_SIZE        8
+
+#define CORE1_TRIANGLE_DRAW_COMMAND   1
+#define CORE1_TEXTURE_CONFIG_COMMAND  2
 
 typedef struct
 {
@@ -46,6 +49,12 @@ typedef struct
 
     Q_TYPE near;
     Q_TYPE far;
+
+    spin_lock_t* spin_lock;
+
+    const pgl_vertex_t* vertices;
+    const uint16_t* indices;
+    uint16_t index_count;
 } pgl_context_t;
 
 static pgl_context_t context = {
@@ -59,6 +68,12 @@ static pgl_context_t context = {
 
     .near = Q_ZERO,
     .far  = Q_MAX,
+
+    .spin_lock = NULL,
+
+    .vertices = NULL,
+    .indices = NULL,
+    .index_count = 0,
 };
 
 // ------------------------------------- CLIP ------------------------------------- // 
@@ -166,9 +181,24 @@ static inline bool pgl_face_is_culled(Q_VEC2 v0_xy_ndc, Q_VEC2 v1_xy_ndc, Q_VEC2
 
 // ------------------------------------- TEXTURE ------------------------------------- //
 
+// REQUIREMENT: u and v must be non-negative
+static colour_t pgl_sample_texture(Q_TYPE u, Q_TYPE v) 
+{
+    interp0->accum[0] = u;
+    interp0->accum[1] = v;
+
+    // equivalent to
+    // uint32_t x = (accum0 >> (Q_FRAC_BITS - width_bits))  & ((1 << width_bits)  - 1);
+    // uint32_t y = (accum1 >> (Q_FRAC_BITS - height_bits)) & ((1 << height_bits) - 1);
+    // const colour_t* *address = texture + ((x + (y << width_bits)) << bpp_shift);
+    // return *address;
+
+    return *(const colour_t*)interp0->pop[2];
+}
+
 // REQUIREMENT:  u and  v must be non-negative
 // REQUIREMENT: su and sv must be non-negative
-void pgl_multisample_texture(colour_t *output, Q_TYPE u, Q_TYPE v, Q_TYPE su, Q_TYPE sv, uint32_t count) 
+static void pgl_multisample_texture(Q_TYPE u, Q_TYPE v, Q_TYPE su, Q_TYPE sv, colour_t *output, uint32_t count) 
 {
     interp0->accum[0] = u;
     interp0->base[0] = su;
@@ -204,16 +234,14 @@ static pgl_clip_vertex_t pgl_vertex_shader(pgl_vertex_t vertex)
     return clip_vertex;
 }
 
-static colour_t pgl_fragment_shader(Q_TYPE u, Q_TYPE v)
+static inline colour_t pgl_fragment_shader(Q_TYPE u, Q_TYPE v)
 {
-    colour_t colour;
-    pgl_multisample_texture(&colour, u, v, Q_ZERO, Q_ZERO, 1);
-    return colour;
+    return pgl_sample_texture(u, v);
 }
 
 // ------------------------------------- RASTERISER ------------------------------------- //
 
-static inline void pgl_rasterise_scanline(
+static void pgl_rasterise_scanline(
     Q_TYPE left_x, Q_TYPE right_x,
     Q_TYPE left_u, Q_TYPE right_u,
     Q_TYPE left_v, Q_TYPE right_v,
@@ -224,11 +252,11 @@ static inline void pgl_rasterise_scanline(
     Q_TYPE v = left_v;
     Q_TYPE w = left_w;
 
-    const Q_TYPE x_diff = q_sub(right_x, left_x);
+    const Q_TYPE x_diff = (q_ne(left_x, right_x)) ? q_sub(right_x, left_x) : Q_MAX;
 
-    const Q_TYPE su = q_ne(x_diff, Q_ZERO) ? q_div(q_sub(right_u, left_u), x_diff) : Q_ZERO;
-    const Q_TYPE sv = q_ne(x_diff, Q_ZERO) ? q_div(q_sub(right_v, left_v), x_diff) : Q_ZERO;
-    const Q_TYPE sw = q_ne(x_diff, Q_ZERO) ? q_div(q_sub(right_w, left_w), x_diff) : Q_ZERO;
+    const Q_TYPE su = q_div(q_sub(right_u, left_u), x_diff);
+    const Q_TYPE sv = q_div(q_sub(right_v, left_v), x_diff);
+    const Q_TYPE sw = q_div(q_sub(right_w, left_w), x_diff);
 
     const int32_t left  = Q_TO_INT(left_x);
     const int32_t right = Q_TO_INT(right_x);
@@ -238,6 +266,7 @@ static inline void pgl_rasterise_scanline(
         const Q_TYPE inv_w = q_div(Q_ONE, w);
         const depth_t depth = pgl_depth_map(inv_w);
 
+        const uint32_t saved_irq = spin_lock_blocking(context.spin_lock);
 		if (pgl_depth_test_passed(x, y, depth))
         {
             const colour_t colour = pgl_fragment_shader(
@@ -246,6 +275,7 @@ static inline void pgl_rasterise_scanline(
             context.draw_image->colours[y][x] = colour;
             context.depths[y][x] = depth;
 		}
+        spin_unlock(context.spin_lock, saved_irq);
 
         u = q_add(u, su);
         v = q_add(v, sv);
@@ -471,7 +501,7 @@ bool pgl_request_draw_image()
     return (context.draw_image != NULL);
 }
 
-void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits)
+static void pgl_bind_texture_internal(const colour_t* texels, uint width_bits, uint height_bits)
 {
 #if defined(RGB332)
     const uint bpp_shift = 0; // log2(1 byte)
@@ -494,15 +524,27 @@ void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits)
     interp0->base[2] = (uintptr_t)texels;
 }
 
-void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t index_count)
+void pgl_bind_texture(const colour_t* texels, uint width_bits, uint height_bits)
+{
+    multicore_fifo_push_blocking(CORE1_TEXTURE_CONFIG_COMMAND);
+    multicore_fifo_push_blocking((uint32_t)texels);
+    multicore_fifo_push_blocking((uint32_t)width_bits);
+    multicore_fifo_push_blocking((uint32_t)height_bits);
+
+    pgl_bind_texture_internal(texels, width_bits, height_bits);
+
+    multicore_fifo_pop_blocking();
+}
+
+static void pgl_draw_internal(uint16_t start_index, uint16_t index_stride)
 {
     pgl_clip_triangle_t clip_buffer[CLIP_BUFFER_SIZE];
-    for (uint16_t i = 0; i < index_count; i+=3)
+    for (uint16_t i = start_index; i < context.index_count; i += index_stride)
     {
         const pgl_clip_triangle_t clip_triangle = {{
-            pgl_vertex_shader(vertices[indices[i + 0]]),
-            pgl_vertex_shader(vertices[indices[i + 1]]),
-            pgl_vertex_shader(vertices[indices[i + 2]]),
+            pgl_vertex_shader(context.vertices[context.indices[i + 0]]),
+            pgl_vertex_shader(context.vertices[context.indices[i + 1]]),
+            pgl_vertex_shader(context.vertices[context.indices[i + 2]]),
         }};
         uint32_t triangle_count = pgl_clip(&clip_triangle, (pgl_clip_triangle_t*)clip_buffer);
 
@@ -510,9 +552,13 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
         {
             const pgl_clip_triangle_t* subtriangle = &clip_buffer[--triangle_count];
 
-            const Q_VEC4 ndc0 = q_homogeneous_point_normalise(subtriangle->verts[0].position);
-            const Q_VEC4 ndc1 = q_homogeneous_point_normalise(subtriangle->verts[1].position);
-            const Q_VEC4 ndc2 = q_homogeneous_point_normalise(subtriangle->verts[2].position);
+            const Q_TYPE inv_depth0 = q_div(Q_ONE, subtriangle->verts[0].position.w);
+            const Q_TYPE inv_depth1 = q_div(Q_ONE, subtriangle->verts[1].position.w);
+            const Q_TYPE inv_depth2 = q_div(Q_ONE, subtriangle->verts[2].position.w);
+
+            const Q_VEC4 ndc0 = q_vec4_scale(subtriangle->verts[0].position, inv_depth0);
+            const Q_VEC4 ndc1 = q_vec4_scale(subtriangle->verts[1].position, inv_depth1);
+            const Q_VEC4 ndc2 = q_vec4_scale(subtriangle->verts[2].position, inv_depth2);
 
             if (pgl_face_is_culled((Q_VEC2){{ndc0.x, ndc0.y}}, (Q_VEC2){{ndc1.x, ndc1.y}}, (Q_VEC2){{ndc2.x, ndc2.y}})) 
                 continue;
@@ -520,10 +566,6 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
             const Q_VEC4 sc0 = q_mat4_mul_vec4(context.viewport, ndc0);
             const Q_VEC4 sc1 = q_mat4_mul_vec4(context.viewport, ndc1);
             const Q_VEC4 sc2 = q_mat4_mul_vec4(context.viewport, ndc2);
-
-            const Q_TYPE inv_depth0 = q_div(Q_ONE, subtriangle->verts[0].position.w);
-            const Q_TYPE inv_depth1 = q_div(Q_ONE, subtriangle->verts[1].position.w);
-            const Q_TYPE inv_depth2 = q_div(Q_ONE, subtriangle->verts[2].position.w);
 
             const pgl_rast_vertex_t rast_vert0 = {
                 .x = CLAMP(Q_TO_INT(sc0.x), 0, SCREEN_WIDTH  - 1),
@@ -552,5 +594,53 @@ void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t in
             pgl_rasterise_filled_triangle(rast_vert0, rast_vert1, rast_vert2);
         }
     }
+}
+
+static void pgl_draw_core1()
+{
+    while (true)
+    {
+        const uint32_t command = multicore_fifo_pop_blocking();
+        if (command == CORE1_TRIANGLE_DRAW_COMMAND)
+        {
+            const uint16_t start_index  = (uint16_t)multicore_fifo_pop_blocking();
+            const uint16_t index_stride = (uint16_t)multicore_fifo_pop_blocking();
+            pgl_draw_internal(start_index, index_stride);
+        }
+        else if (command == CORE1_TEXTURE_CONFIG_COMMAND)
+        {
+            const colour_t* texels  = (const colour_t*)multicore_fifo_pop_blocking();
+            const uint width_bits = (uint)multicore_fifo_pop_blocking();
+            const uint height_bits = (uint)multicore_fifo_pop_blocking();
+            pgl_bind_texture_internal(texels, width_bits, height_bits);
+        }
+
+        const uint32_t complete_signal = UINT32_MAX;
+        multicore_fifo_push_blocking(complete_signal);
+    }
+}
+
+void pgl_init()
+{
+    const int spin_lock_number = spin_lock_claim_unused(true);
+    context.spin_lock = spin_lock_init(spin_lock_number);
+    multicore_launch_core1(pgl_draw_core1);
+}
+
+void pgl_draw(const pgl_vertex_t* vertices, const uint16_t* indices, uint16_t index_count)
+{
+    context.vertices = vertices;
+    context.indices = indices;
+    context.index_count = index_count;
+
+    const uint16_t start_index  = 3;
+    const uint16_t index_stride = 6;
+    multicore_fifo_push_blocking(CORE1_TRIANGLE_DRAW_COMMAND);
+    multicore_fifo_push_blocking(start_index);
+    multicore_fifo_push_blocking(index_stride);
+
+    pgl_draw_internal(0, 6);
+    
+    multicore_fifo_pop_blocking();
 }
 

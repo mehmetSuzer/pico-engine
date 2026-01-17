@@ -9,7 +9,9 @@
 
 #if defined(CLOCK_FREQUENCY_KHZ)
     #define SPI_BAUDRATE_HZ (CLOCK_FREQUENCY_KHZ * 250u)
-#else
+#elif defined(PICO_RP2350)
+    #define SPI_BAUDRATE_HZ 75000000u
+#elif defined(PICO_RP2040)
     #define SPI_BAUDRATE_HZ 62500000u
 #endif
 
@@ -50,6 +52,7 @@
 #define LCD_CMD_INVON       0x21u
 #define LCD_CMD_SLPOUT      0x11u
 #define LCD_CMD_DISPON      0x29u
+#define LCD_CMD_NORON		0x13u
 
 #define LCD_GATE_CTRL       0x35u
 #define LCD_VCOM            0x19u
@@ -60,9 +63,7 @@
 #define LCD_FRATE           0x0Fu
 
 #define LCD_COLOUR_RGB332   0x02u
-#define LCD_COLOUR_RGB444   0x03u
 #define LCD_COLOUR_RGB565   0x05u
-#define LCD_COLOUR_RGB666   0x06u
 
 #define LCD_CMD_CASET       0x2Au // Column Address Set
 #define LCD_CMD_RASET       0x2Bu // Row Address Set
@@ -179,8 +180,12 @@ static void lcd_configure()
     static const uint8_t LCD_GAMMA_NEG[] = {0xD0u, 0x04u, 0x0Cu, 0x11u, 0x13u, 0x2Cu, 0x3Fu,
                                             0x44u, 0x51u, 0x2Fu, 0x1Fu, 0x1Fu, 0x20u, 0x23u};
 
+    lcd_command(LCD_CMD_SLPOUT);
+    sleep_ms(120);
+    lcd_command(LCD_CMD_NORON);
+
     lcd_command(LCD_CMD_MADCTL);
-    lcd_data_8bit(MADCTL_MX | MADCTL_MV | MADCTL_ML);
+    lcd_data_8bit(MADCTL_MX | MADCTL_MV | MADCTL_ML | MADCTL_RGB);
     
     lcd_command(LCD_CMD_COLMOD);
 #if defined(RGB332)

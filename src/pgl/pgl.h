@@ -15,6 +15,8 @@ typedef struct
     Q_VEC2 tex_coord; // Texture coordinates must have non-negative values
 } pgl_vertex_t;
 
+void pgl_init();
+
 void pgl_model(Q_VEC3 position, Q_QUAT rotation, Q_VEC3 scale);
 void pgl_view(Q_VEC3 eye, Q_VEC3 backward, Q_VEC3 up);
 void pgl_projection(Q_TYPE fovw, Q_TYPE near, Q_TYPE far);
