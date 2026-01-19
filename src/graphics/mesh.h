@@ -12,7 +12,5 @@ typedef struct
     uint16_t index_count;
 } mesh_t;
 
-extern const mesh_t cube_mesh;
-
 #endif // PICO_ENGINE_MESH_MESH_H
 

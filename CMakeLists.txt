@@ -37,6 +37,7 @@ project(pico-engine
 
 pico_sdk_init()
 
+add_subdirectory(src/models)
 add_subdirectory(src/graphics)
 add_subdirectory(src/pgl)
 add_subdirectory(src/device)
@@ -50,6 +51,7 @@ add_executable(${PROJECT_NAME}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
+    models
     graphics
     pgl
     swapchain

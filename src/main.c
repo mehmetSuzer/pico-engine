@@ -7,31 +7,7 @@
 #include "device/lcd.h"
 #include "device/input.h"
 #include "graphics/scene.h"
-
-#define HEART_TEXTURE_WIDTH_BITS  3
-#define HEART_TEXTURE_HEIGHT_BITS 3
-
-const colour_t heart_texture[1 << HEART_TEXTURE_HEIGHT_BITS][1 << HEART_TEXTURE_WIDTH_BITS] = {
-#if defined(RGB332)
-    {0xFFu, 0xFFu, 0xFFu, 0x00u, 0x00u, 0xFFu, 0xFFu, 0xFFu},
-    {0xFFu, 0xFFu, 0x00u, 0x40u, 0x40u, 0x00u, 0xFFu, 0xFFu},
-    {0xFFu, 0x00u, 0x40u, 0xE0u, 0x40u, 0xE0u, 0x00u, 0xFFu},
-    {0x00u, 0xE0u, 0xE0u, 0x40u, 0xE0u, 0x40u, 0xE0u, 0x00u},
-    {0x00u, 0xE0u, 0xE0u, 0xE0u, 0xE0u, 0xE0u, 0xE0u, 0x00u},
-    {0x00u, 0xFFu, 0xE0u, 0x00u, 0x00u, 0xFFu, 0xE0u, 0x00u},
-    {0xFFu, 0x00u, 0x00u, 0xFFu, 0xFFu, 0x00u, 0x00u, 0xFFu},
-    {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu},
-#elif defined(RGB565)
-    {0xFFFFu, 0xFFFFu, 0xFFFFu, 0x0000u, 0x0000u, 0xFFFFu, 0xFFFFu, 0xFFFFu},
-    {0xFFFFu, 0xFFFFu, 0x0000u, 0x3800u, 0x3800u, 0x0000u, 0xFFFFu, 0xFFFFu},
-    {0xFFFFu, 0x0000u, 0x3800u, 0xF800u, 0x3800u, 0xF800u, 0x0000u, 0xFFFFu},
-    {0x0000u, 0xF800u, 0xF800u, 0x3800u, 0xF800u, 0x3800u, 0xF800u, 0x0000u},
-    {0x0000u, 0xF800u, 0xF800u, 0xF800u, 0xF800u, 0xF800u, 0xF800u, 0x0000u},
-    {0x0000u, 0xFFFFu, 0xF800u, 0x0000u, 0x0000u, 0xFFFFu, 0xF800u, 0x0000u},
-    {0xFFFFu, 0x0000u, 0x0000u, 0xFFFFu, 0xFFFFu, 0x0000u, 0x0000u, 0xFFFFu},
-    {0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu},
-#endif
-};
+#include "models/scene_models.h"
 
 static void configure_clock() 
 {
@@ -58,7 +34,7 @@ static void configure_clock()
 
 static void process_input(Q_VEC3* delta_position, Q_QUAT* delta_rotation)
 {
-    const Q_TYPE lin_speed = Q_THREE;
+    const Q_TYPE lin_speed = Q_FROM_INT(12);
     const Q_TYPE ang_speed = q_mul_int(Q_2_PI, 3);
 
     const Q_TYPE delta_speed = q_mul(lin_speed, Q_PHYSICS_UPDATE_PERIOD);
@@ -102,8 +78,8 @@ int main()
     configure_clock();
     input_init_buttons();
     lcd_init();
-    pgl_init();
 
+    pgl_init();
     pgl_viewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
     scene_t scene;
@@ -112,30 +88,26 @@ int main()
         .camera = {Q_FOURTHPI, Q_FROM_FLOAT(0.1f), Q_FROM_FLOAT(100.0f)},
     });
 
-#if 0
-    for (uint32_t i = 0; i < SCENE_MAX_MODEL_COUNT; ++i)
-    {
-        scene_add_model(&scene, (model_t){
-            .transform = {
-                {{Q_FROM_INT(8 - rand()%16), Q_FROM_INT(1 - rand()%2), Q_FROM_INT(8 - rand()%16)}}, 
-                q_quat_angle_axis(q_mul(Q_THIRDPI, Q_FROM_INT(rand()%10)), q_vec3_normalise(Q_VEC3_ONE)), 
-                Q_VEC3_ONE,
-            },
-            .mesh = cube_mesh,
-        });
-    }
-#else
-    scene_add_model(&scene, (model_t){
-        .transform = {
-            {{Q_ZERO, Q_ZERO, Q_M_ONE}},
-            q_quat_angle_axis(Q_THIRDPI, q_vec3_normalise(Q_VEC3_ONE)), 
-            Q_VEC3_ONE,
-        },
-        .mesh = cube_mesh,
-    });
-#endif
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(00), Q_FROM_INT(0), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 8)}, scene_model01}); // Woods
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(00), Q_FROM_INT(0), Q_FROM_INT(-24)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 8)}, scene_model01}); // Woods
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(12), Q_FROM_INT(0), Q_FROM_INT(-24)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 8)}, scene_model01}); // Woods
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(12), Q_FROM_INT(0), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 8)}, scene_model01}); // Woods
 
-    pgl_bind_texture((colour_t*)heart_texture, HEART_TEXTURE_WIDTH_BITS, HEART_TEXTURE_HEIGHT_BITS);
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(12), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-10)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(12), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(10), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(10), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-10)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(6), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-16)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(4), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(8), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-18)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(2), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-14)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(-10), Q_FROM_INT(2), Q_FROM_INT(-7)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 4)}, scene_model03}); // Windmill
+
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(-10), Q_FROM_INT(-2), Q_FROM_INT(-3)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 2)}, scene_model04}); // Pool
+    
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(-18), Q_FROM_INT(0), Q_FROM_INT(-7)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 4)}, scene_model05}); // House 
 
     uint32_t prev_time_us = time_us_32();
     uint32_t lag_us = 0;
@@ -166,22 +138,18 @@ int main()
             lag_us -= PHYSICS_UPDATE_PERIOD_US;
         }
 
-        // --------------------------------------------------------------------------------------------- //
+        // ------------------------------------------- RENDER ------------------------------------------- //
 
         if (pgl_request_draw_image())
         {
             const uint32_t dt_frame_us = curr_time_us - prev_frame_time_us;
             prev_frame_time_us = curr_time_us;
             const uint32_t fps = 1000000 / dt_frame_us;
-            // printf("FPS: %lu - Delta Time: %lu us\n", fps, dt_frame_us);
+            printf("FPS: %lu - Delta Time: %lu us\n", fps, dt_frame_us);
 
-            const uint32_t start = time_us_32();
             pgl_clear_colours(COLOUR_BLACK);
             pgl_clear_depths(DEPTH_FURTHEST);
             scene_draw(&scene);
-            const uint32_t end = time_us_32();
-            const uint32_t dt = end - start;
-            printf("dt: %lu us\n", dt);
 
             swapchain_swap_images();
         }

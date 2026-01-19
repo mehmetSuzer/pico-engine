@@ -1,0 +1,11 @@
+Model Information:
+* title:	Low Poly Farm
+* source:	https://sketchfab.com/3d-models/low-poly-farm-a4e01e15d0e8494e8b9055fc3809c1c5
+* author:	jafetmorales (https://sketchfab.com/jafetmorales)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Low Poly Farm" (https://sketchfab.com/3d-models/low-poly-farm-a4e01e15d0e8494e8b9055fc3809c1c5) by jafetmorales (https://sketchfab.com/jafetmorales) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
