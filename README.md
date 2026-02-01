@@ -53,6 +53,11 @@ PICO-ENGINE allows several build-time options:
 
 - Sets the depth-bit length of fragments.
 
+## 🎥 Demo
+
+A simple scene consisting of 7394 triangles:
+
+https://github.com/user-attachments/assets/45e91a5e-157c-46c7-9ac0-30c936bbcc20
 
 ## ⚠️ Notes
 
