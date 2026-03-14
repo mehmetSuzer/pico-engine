@@ -1,6 +1,6 @@
 
-#include "pgl.h"
 #include <pico/multicore.h>
+#include "pgl.h"
 
 // ------------------------------------- TYPES ------------------------------------- //
 

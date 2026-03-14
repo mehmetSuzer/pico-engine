@@ -40,12 +40,13 @@
 
 // ----------------------------------------------------------------------------------- //
 
+#define QGLM_DEPTH_ZERO_TO_ONE
 #if defined(Q8_24)
-    #include <qglm/q8_24_glm.h>
+    #include <qglm/q8_24.h>
 #elif defined(Q16_16)
-    #include <qglm/q16_16_glm.h>
+    #include <qglm/q16_16.h>
 #elif defined(Q24_8)
-    #include <qglm/q24_8_glm.h>
+    #include <qglm/q24_8.h>
 #endif
 
 #endif // PICO_ENGINE_COMMON_QTYPE_H

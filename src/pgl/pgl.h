@@ -3,7 +3,6 @@
 #define PICO_ENGINE_PGL_PGL_H
 
 #include <hardware/interp.h>
-
 #include "common/macros.h"
 #include "common/depth.h"
 #include "common/fixed_point.h"

@@ -85,23 +85,23 @@ int main()
     scene_t scene;
     scene_init(&scene, (camera_t){
         .transform = {{{Q_ZERO, Q_ZERO, Q_ZERO}}, Q_QUAT_IDENTITY, Q_VEC3_ONE},
-        .camera = {Q_FOURTHPI, Q_FROM_FLOAT(0.1f), Q_FROM_FLOAT(100.0f)},
+        .camera = {Q_QUARTERPI, Q_FROM_FLOAT(0.1f), Q_FROM_FLOAT(100.0f)},
     });
 
-    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(00), Q_FROM_INT(0), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 8)}, scene_model01}); // Woods
-    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(00), Q_FROM_INT(0), Q_FROM_INT(-24)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 8)}, scene_model01}); // Woods
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT( 0), Q_FROM_INT(0), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 8)}, scene_model01}); // Woods
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT( 0), Q_FROM_INT(0), Q_FROM_INT(-24)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 8)}, scene_model01}); // Woods
     scene_add_object(&scene, (object_t){{{{Q_FROM_INT(12), Q_FROM_INT(0), Q_FROM_INT(-24)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 8)}, scene_model01}); // Woods
     scene_add_object(&scene, (object_t){{{{Q_FROM_INT(12), Q_FROM_INT(0), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 8)}, scene_model01}); // Woods
 
-    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(12), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-10)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
-    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(12), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
-    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(10), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
-    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(10), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-10)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(12), Q_FROM_FLOAT(-1.5f), Q_FROM_INT(-10)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(12), Q_FROM_FLOAT(-1.5f), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(10), Q_FROM_FLOAT(-1.5f), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(10), Q_FROM_FLOAT(-1.5f), Q_FROM_INT(-10)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
 
-    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(6), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-16)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
-    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(4), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
-    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(8), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-18)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
-    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(2), Q_FROM_FLOAT(-1.5), Q_FROM_INT(-14)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(6), Q_FROM_FLOAT(-1.5f), Q_FROM_INT(-16)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(4), Q_FROM_FLOAT(-1.5f), Q_FROM_INT(-12)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(8), Q_FROM_FLOAT(-1.5f), Q_FROM_INT(-18)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
+    scene_add_object(&scene, (object_t){{{{Q_FROM_INT(2), Q_FROM_FLOAT(-1.5f), Q_FROM_INT(-14)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 1)}, scene_model02}); // Sheep
     
     scene_add_object(&scene, (object_t){{{{Q_FROM_INT(-10), Q_FROM_INT(2), Q_FROM_INT(-7)}}, Q_QUAT_IDENTITY, q_vec3_upscale_int(Q_VEC3_ONE, 4)}, scene_model03}); // Windmill
 
